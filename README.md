@@ -1,0 +1,90 @@
+# Usage Console
+
+轻量级多平台 AI 额度查询与 Token 用量监控控制台（B/S 架构）。
+
+结合了 [codex-switch](https://github.com/AmazingUmi/codex-switch) 的无侵入式用量洞察与 [pi-quota-monitor](https://github.com/AmazingUmi/pi-quota-monitor) 的多平台额度监控协议，为开发者提供一体化的额度状态和开销仪表盘。
+
+---
+
+## 特性
+
+- **官方额度实时监控**：
+  - **Antigravity / Gemini**：5小时限额与每周配额进度条、模型分组、自动重置倒计时。
+  - **OpenAI Codex**：订阅类型（Plus / Pro）、5小时滚动限额及周额度。
+  - **xAI Grok / Claude**：配额窗口与探活状态。
+- **无感本地用量统计**：
+  - 自动读取并同步本地已有的 Token 账本与会话记录（如 `~/.pi/agent/pi-quota-monitor/usage` 与 `~/.codex/sessions`）。
+  - 支持多时间跨度筛选（今天、近7天、近30天、全部记录）。
+- **费用与时序可视化**：
+  - 消耗总 Token、输入/输出细分、缓存命中量、推理输出。
+  - 内置主流模型官方价格表，自动估算美元与人民币消费。
+  - 14 天每日用量柱状走势图。
+  - 按模型（By Model）与按渠道（By Provider）的占比分布与排序明细。
+  - 最近请求历史流水表。
+
+---
+
+## 快速开始
+
+### 1. 安装依赖
+
+需要 Node.js 20+ 与 pnpm：
+
+```bash
+pnpm install
+```
+
+### 2. 开发模式
+
+同时启动 Vite 开发服务器（端口 3000）与 Node API 服务（端口 3001）：
+
+```bash
+pnpm dev
+```
+
+在浏览器中打开：[http://localhost:3000](http://localhost:3000)
+
+### 3. 生产模式构建与运行
+
+一键编译前端并启动自承载服务：
+
+```bash
+pnpm build
+pnpm start
+```
+
+在浏览器中打开：[http://localhost:3001](http://localhost:3001)
+
+---
+
+## 目录结构
+
+```text
+Usage_Console/
+├── package.json
+├── vite.config.ts            # 前端 Vite 构建与开发代理配置
+├── tailwind.config.js
+├── src/
+│   ├── client/               # React 现代化 Web 看板
+│   │   ├── main.tsx
+│   │   ├── App.tsx
+│   │   ├── api.ts            # API 客户端
+│   │   ├── components/
+│   │   │   ├── Header.tsx             # 顶部状态与一键刷新
+│   │   │   ├── QuotaCard.tsx          # 平台额度电池进度条与倒计时
+│   │   │   ├── UsageMetrics.tsx       # 核心用量指标与筛选器
+│   │   │   ├── UsageTrend.tsx         # 14天用量走势图
+│   │   │   ├── BreakdownTable.tsx     # 模型/渠道消耗占比表
+│   │   │   └── RecentRecordsTable.tsx # 实时调用流水
+│   │   └── types.ts
+│   └── server/               # 轻量 Node.js / Express 后端服务
+│       ├── index.ts          # 服务入口与 API 路由
+│       ├── config.ts         # 本地路径感知 (~/.codex, ~/.pi)
+│       ├── quota/
+│       │   ├── types.ts
+│       │   └── scanner.ts    # 官方额度扫描与状态提取
+│       └── usage/
+│           ├── types.ts
+│           ├── pricing.ts    # 官方模型定价表与费用计算器
+│           └── store.ts      # 本地账本加载、增量去重与聚合引擎
+```
