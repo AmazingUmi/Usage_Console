@@ -3,7 +3,7 @@ import fsSync from 'node:fs';
 import path from 'node:path';
 import { CONFIG } from '../config.js';
 import type { ProviderQuota, QuotaState, QuotaWindow } from './types.js';
-import { getLatestQuotaState } from './scanner.js';
+import { AgyUnavailableError, queryAgyQuota } from './agy.js';
 import { loadAccounts } from '../data/library.js';
 import { fetchClaudeAccountQuota } from '../identity/claude-account.js';
 import { listCredentials, withToken } from '../identity/credentials.js';
@@ -226,22 +226,25 @@ export async function queryAllLiveQuotas(forceRefresh = false): Promise<QuotaSta
     );
   }
 
-  // 2. Antigravity: read from the quota snapshots on disk, not an OAuth login of ours.
-  try {
-    const agyFile = path.join(CONFIG.paths.piQuotaReadings, 'antigravity-shared', 'latest.json');
-    if (fsSync.existsSync(agyFile)) {
-      const content = await fs.readFile(agyFile, 'utf8');
-      const raw = JSON.parse(content);
-      providers['antigravity'] = {
-        provider: 'antigravity',
-        displayName: 'Google Antigravity',
-        plan: raw.tier || 'Claude 3.7 / Gemini 2.5',
-        capturedAt: raw.capturedAt || Date.now(),
-        status: 'ok',
-        groups: raw.groups || [],
-      };
-    }
-  } catch {}
+  // 2. Antigravity: asks the local agy CLI (its own login), so it needs no OAuth login of ours.
+  if (library.some((account) => account.type === 'agy')) {
+    tasks.push(
+      queryAgyQuota(forceRefresh)
+        .then((quota) => { providers['antigravity'] = quota; })
+        .catch((err: Error) => {
+          console.warn('[Quota] agy usage failed:', err.message);
+          providers['antigravity'] = {
+            provider: 'antigravity',
+            displayName: 'Google Antigravity',
+            capturedAt: Date.now(),
+            status: 'error',
+            errorCode: err instanceof AgyUnavailableError ? 'agy_unavailable' : 'read_failed',
+            errorMessage: err.message,
+            accountId: 'agy-local',
+          };
+        })
+    );
+  }
 
   // Await all live queries
   await Promise.allSettled(tasks);
@@ -265,21 +268,6 @@ export async function queryAllLiveQuotas(forceRefresh = false): Promise<QuotaSta
       accountId: account.userId,
     };
   }
-
-  try {
-    const fallback = await getLatestQuotaState();
-    for (const [key, quota] of Object.entries(fallback.providers)) {
-      const alreadyPresent = Object.values(providers).some((item) => {
-        return item.provider === quota.provider || item.displayName === quota.displayName;
-      });
-      if (!alreadyPresent && quota.provider === 'antigravity' && quota.status === 'ok') {
-        providers[key] = {
-          ...quota,
-          displayName: quota.displayName.includes('(Cached)') ? quota.displayName : `${quota.displayName} (Cached)`,
-        };
-      }
-    }
-  } catch {}
 
   const result: QuotaState = {
     updatedAt: Date.now(),

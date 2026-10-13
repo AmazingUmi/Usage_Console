@@ -55,7 +55,7 @@ const zh: Dict = {
   'err.no_subscription': '已登录，但该账户没有返回订阅额度（可能是 API 计费账户）。',
   'err.rate_limited': '额度接口限流（HTTP 429），显示上一次读数。',
   'err.read_failed': '读取额度失败：{detail}',
-  'err.agyLocal': '已识别账户，但本机读不到该账户额度。',
+  'err.agyLocal': '没有找到可用的 agy。请先安装并登录 Antigravity CLI（agy），额度由 agy 自己的登录读取。',
 
   'overview.title': '本地用量',
   'overview.hint': '汇总本机 Claude Code、Codex、Pi、Grok 会话日志，费用按 API 标价估算',
@@ -182,7 +182,7 @@ const zh: Dict = {
   'add.pasteCode': '粘贴回调 code',
   'add.confirm': '确认身份',
   'add.close': '关闭',
-  'add.agyInfo': 'Antigravity 暂不支持在这里独立登录：额度来自本机 agy / pi 写入的额度快照。添加后会显示这份快照。',
+  'add.agyInfo': 'Antigravity 不需要在这里登录：控制台运行本机的 agy（agy --print /usage），用 agy 自己的登录读取额度。请先确保 agy 已安装并登录。',
   'add.agyButton': '添加本机 Antigravity',
 
   'edit.title': '编辑账户',
@@ -252,7 +252,7 @@ const en: Dict = {
   'err.no_subscription': 'Signed in, but this account returned no subscription quota (it may be an API-billed account).',
   'err.rate_limited': 'The quota endpoint is rate-limiting (HTTP 429); showing the previous reading.',
   'err.read_failed': 'Could not read quota: {detail}',
-  'err.agyLocal': 'The account is known, but its quota cannot be read from this machine.',
+  'err.agyLocal': 'agy was not found. Install and sign in to the Antigravity CLI (agy); its quota is read through agy\'s own login.',
 
   'overview.title': 'Local usage',
   'overview.hint': 'Aggregated from local Claude Code, Codex, Pi and Grok session logs; cost is estimated at API list prices',
@@ -379,7 +379,7 @@ const en: Dict = {
   'add.pasteCode': 'Paste the callback code',
   'add.confirm': 'Confirm identity',
   'add.close': 'Close',
-  'add.agyInfo': 'Antigravity cannot sign in here yet: its quota comes from snapshots written by the local agy / pi tooling. Adding it shows that snapshot.',
+  'add.agyInfo': 'Antigravity needs no sign-in here: the console runs the local agy (agy --print /usage) and reads quota through agy\'s own login. Make sure agy is installed and signed in first.',
   'add.agyButton': 'Add local Antigravity',
 
   'edit.title': 'Edit account',

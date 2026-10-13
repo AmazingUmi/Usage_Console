@@ -36,7 +36,6 @@ export interface RuntimePaths {
   codexSessions: string;
   pi: string;
   piAgent: string;
-  piQuotaReadings: string;
   piUsage: string;
   gemini: string;
   claudeProjects: string;
@@ -189,7 +188,6 @@ function computeRuntimePaths(): RuntimePaths {
     codexSessions: path.join(codexDir, 'sessions'),
     pi: path.dirname(piAgentDir),
     piAgent: piAgentDir,
-    piQuotaReadings: path.join(piAgentDir, 'pi-quota-monitor', 'quota-readings'),
     piUsage: path.join(piAgentDir, 'pi-quota-monitor', 'usage'),
     gemini: path.join(os.homedir(), '.gemini'),
     claudeProjects: claudeProjectsAll.find((dir) => fs.existsSync(dir)) || claudeProjectsDir,

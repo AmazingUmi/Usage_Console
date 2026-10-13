@@ -17,7 +17,7 @@ export interface ProviderQuota {
   capturedAt: number;
   status: 'ok' | 'warning' | 'error' | 'unconfigured';
   /** Machine-readable reason; the UI translates it. `errorMessage` stays as the English fallback/detail. */
-  errorCode?: 'login_required' | 'login_expired' | 'no_subscription' | 'rate_limited' | 'read_failed';
+  errorCode?: 'login_required' | 'login_expired' | 'no_subscription' | 'rate_limited' | 'read_failed' | 'agy_unavailable';
   errorMessage?: string;
   windows?: QuotaWindow[];
   groups?: QuotaGroup[];

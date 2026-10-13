@@ -5,6 +5,7 @@ import fs from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import { CONFIG } from './config.js';
 import { L, langMiddleware } from './i18n.js';
+import { findAgyBinary } from './quota/agy.js';
 import { loadSettings, resolveDataDir, saveSettings, settingsView } from './settings.js';
 import { queryAllLiveQuotas } from './quota/oauth.js';
 import { usageStore } from './usage/store.js';
@@ -221,8 +222,16 @@ app.patch('/api/accounts/:id', (req, res) => {
   res.json({ account, settings: publicSettings() });
 });
 
-/** Antigravity has no OAuth we can use: its quota comes from the snapshots the local agy/pi tooling writes. */
-app.post('/api/accounts/agy', (_req, res) => {
+/** Antigravity is read through the local agy CLI (its own login), so adding it only needs agy to exist. */
+app.post('/api/accounts/agy', async (_req, res) => {
+  try {
+    await findAgyBinary();
+  } catch {
+    res.status(400).json({
+      error: L('没有找到 agy。请先安装并登录 Antigravity CLI（agy）。', 'agy was not found. Install and sign in to the Antigravity CLI (agy) first.'),
+    });
+    return;
+  }
   upsertAccounts([{ type: 'agy', userId: 'agy-local', source: 'scan' }]);
   queryAllLiveQuotas(true).catch(() => {});
   res.json({ settings: publicSettings() });
