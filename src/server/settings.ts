@@ -1,3 +1,4 @@
+import { L } from './i18n.js';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
@@ -33,10 +34,8 @@ export interface RuntimePaths {
   home: string;
   codex: string;
   codexSessions: string;
-  codexAuth: string;
   pi: string;
   piAgent: string;
-  piQuotaMonitor: string;
   piQuotaReadings: string;
   piUsage: string;
   gemini: string;
@@ -133,8 +132,8 @@ export function loadSettings(): StoredSettings {
 export function expandUserPath(input: string): string {
   const trimmed = input.trim();
   if (!trimmed) return '';
-  if (trimmed.includes('\0')) throw new Error('路径包含非法字符');
-  if (trimmed.length > 1024) throw new Error('路径过长');
+  if (trimmed.includes('\0')) throw new Error(L('路径包含非法字符', 'The path contains invalid characters'));
+  if (trimmed.length > 1024) throw new Error(L('路径过长', 'The path is too long'));
   if (trimmed === '~') return os.homedir();
   if (trimmed.startsWith('~/') || trimmed.startsWith('~\\')) {
     return path.resolve(path.join(os.homedir(), trimmed.slice(2)));
@@ -188,10 +187,8 @@ function computeRuntimePaths(): RuntimePaths {
     home: os.homedir(),
     codex: codexDir,
     codexSessions: path.join(codexDir, 'sessions'),
-    codexAuth: path.join(codexDir, 'auth.json'),
     pi: path.dirname(piAgentDir),
     piAgent: piAgentDir,
-    piQuotaMonitor: path.join(piAgentDir, 'pi-quota-monitor'),
     piQuotaReadings: path.join(piAgentDir, 'pi-quota-monitor', 'quota-readings'),
     piUsage: path.join(piAgentDir, 'pi-quota-monitor', 'usage'),
     gemini: path.join(os.homedir(), '.gemini'),
@@ -211,7 +208,7 @@ function invalidateRuntimePaths(): void {
 }
 
 function toOverride(value: unknown, fallback: string): string {
-  if (typeof value !== 'string') throw new Error('路径必须是字符串');
+  if (typeof value !== 'string') throw new Error(L('路径必须是字符串', 'The path must be a string'));
   const trimmed = value.trim();
   if (!trimmed) return '';
   const expanded = expandUserPath(trimmed);

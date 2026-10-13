@@ -1,6 +1,7 @@
 import React, { useState } from 'react';
 import type { UsageSummary, DailyTrendPoint, GroupedUsage } from '../types';
 import { formatCnyFromUsd, formatTokens, formatUsd } from '../lib/format';
+import { useI18n } from '../i18n';
 import { UsageTrendChart, seriesFor } from './UsageTrendChart';
 import type { TrendMetric } from './UsageTrendChart';
 
@@ -14,15 +15,16 @@ interface OverviewDashboardProps {
 
 type Dimension = 'client' | 'model' | 'provider';
 
-const DIMENSIONS: Array<{ id: Dimension; label: string }> = [
-  { id: 'client', label: '软件' },
-  { id: 'model', label: '模型' },
-  { id: 'provider', label: '渠道' },
+const DIMENSIONS: Array<{ id: Dimension; key: string }> = [
+  { id: 'client', key: 'dist.client' },
+  { id: 'model', key: 'dist.model' },
+  { id: 'provider', key: 'dist.provider' },
 ];
 
 const MAX_ROWS = 8;
 
 export const OverviewDashboard: React.FC<OverviewDashboardProps> = ({ summary, trend, models, providers, clients }) => {
+  const { t, locale } = useI18n();
   const [metric, setMetric] = useState<TrendMetric>('tokens');
   const [dimension, setDimension] = useState<Dimension>('client');
 
@@ -32,7 +34,7 @@ export const OverviewDashboard: React.FC<OverviewDashboardProps> = ({ summary, t
   const total = sorted.reduce((sum, item) => sum + pick(item), 0);
   const rows = sorted.slice(0, MAX_ROWS).map((item) => ({ name: item.name, value: pick(item) }));
   if (sorted.length > MAX_ROWS) {
-    rows.push({ name: `其他 ${sorted.length - MAX_ROWS} 项`, value: sorted.slice(MAX_ROWS).reduce((sum, item) => sum + pick(item), 0) });
+    rows.push({ name: t('dist.others', { n: sorted.length - MAX_ROWS }), value: sorted.slice(MAX_ROWS).reduce((sum, item) => sum + pick(item), 0) });
   }
   const maxRow = Math.max(1, ...rows.map((row) => row.value));
   const fmt = (n: number) => (metric === 'cost' ? formatUsd(n, 2) : formatTokens(n));
@@ -45,24 +47,24 @@ export const OverviewDashboard: React.FC<OverviewDashboardProps> = ({ summary, t
     <>
       <div className="stat-grid">
         <div className="panel stat">
-          <div className="stat-label">Tokens（输入 + 输出）</div>
+          <div className="stat-label">{t('stat.tokens')}</div>
           <div className="stat-value">{formatTokens(summary.totalTokens)}</div>
-          <div className="stat-sub">输入 {formatTokens(summary.inputTokens)} · 输出 {formatTokens(summary.outputTokens)}</div>
+          <div className="stat-sub">{t('stat.tokensSub', { input: formatTokens(summary.inputTokens), output: formatTokens(summary.outputTokens) })}</div>
         </div>
         <div className="panel stat">
-          <div className="stat-label">估算费用</div>
+          <div className="stat-label">{t('stat.cost')}</div>
           <div className="stat-value">{formatUsd(summary.estimatedCostUsd, 2)}</div>
-          <div className="stat-sub">约 {formatCnyFromUsd(summary.estimatedCostUsd)} · 按 API 标价折算</div>
+          <div className="stat-sub">{t('stat.costSub', { cny: formatCnyFromUsd(summary.estimatedCostUsd) })}</div>
         </div>
         <div className="panel stat">
-          <div className="stat-label">请求次数</div>
-          <div className="stat-value">{(summary.requestCount || 0).toLocaleString()}</div>
-          <div className="stat-sub">平均 {formatTokens(avgTokens)} / 次</div>
+          <div className="stat-label">{t('stat.requests')}</div>
+          <div className="stat-value">{(summary.requestCount || 0).toLocaleString(locale)}</div>
+          <div className="stat-sub">{t('stat.requestsSub', { avg: formatTokens(avgTokens) })}</div>
         </div>
         <div className="panel stat">
-          <div className="stat-label">缓存命中</div>
+          <div className="stat-label">{t('stat.cache')}</div>
           <div className="stat-value">{formatTokens(summary.cacheReadTokens)}</div>
-          <div className="stat-sub">命中率 {cacheRate.toFixed(0)}% · 写入 {formatTokens(summary.cacheWriteTokens)}</div>
+          <div className="stat-sub">{t('stat.cacheSub', { rate: cacheRate.toFixed(0), write: formatTokens(summary.cacheWriteTokens) })}</div>
         </div>
       </div>
 
@@ -70,19 +72,19 @@ export const OverviewDashboard: React.FC<OverviewDashboardProps> = ({ summary, t
         <section className="panel" aria-labelledby="trend-title">
           <div className="panel-head">
             <div>
-              <h3 id="trend-title">每日趋势</h3>
-              <p className="hint">近 {trend.length} 天，悬停查看缓存与请求明细</p>
+              <h3 id="trend-title">{t('trend.title')}</h3>
+              <p className="hint">{t('trend.hint', { n: trend.length })}</p>
             </div>
-            <div className="segmented" role="group" aria-label="趋势指标">
+            <div className="segmented" role="group" aria-label={t('trend.metric')}>
               <button type="button" aria-pressed={metric === 'tokens'} onClick={() => setMetric('tokens')}>Token</button>
-              <button type="button" aria-pressed={metric === 'cost'} onClick={() => setMetric('cost')}>费用</button>
+              <button type="button" aria-pressed={metric === 'cost'} onClick={() => setMetric('cost')}>{t('trend.cost')}</button>
             </div>
           </div>
           <div className="chart-body">
             {seriesFor(metric).length > 1 && (
               <div className="chart-legend">
                 {seriesFor(metric).map((s) => (
-                  <span key={s.key}><i style={{ background: s.color }} />{s.label}</span>
+                  <span key={s.key}><i style={{ background: s.color }} />{t(s.labelKey)}</span>
                 ))}
               </div>
             )}
@@ -92,17 +94,17 @@ export const OverviewDashboard: React.FC<OverviewDashboardProps> = ({ summary, t
 
         <aside className="panel breakdown" aria-labelledby="breakdown-title">
           <div className="panel-head">
-            <h3 id="breakdown-title">分布</h3>
-            <div className="segmented" role="group" aria-label="分布维度">
+            <h3 id="breakdown-title">{t('dist.title')}</h3>
+            <div className="segmented" role="group" aria-label={t('dist.aria')}>
               {DIMENSIONS.map((item) => (
                 <button key={item.id} type="button" aria-pressed={dimension === item.id} onClick={() => setDimension(item.id)}>
-                  {item.label}<span className="count">{lists[item.id].length}</span>
+                  {t(item.key)}<span className="count">{lists[item.id].length}</span>
                 </button>
               ))}
             </div>
           </div>
           <div className="breakdown-total">
-            <span>合计（{metric === 'cost' ? '费用' : 'Token'}）</span>
+            <span>{t('dist.total', { metric: metric === 'cost' ? t('trend.cost') : 'Token' })}</span>
             <strong>{fmt(total)}</strong>
           </div>
           <ol className="breakdown-list">
@@ -119,7 +121,7 @@ export const OverviewDashboard: React.FC<OverviewDashboardProps> = ({ summary, t
                 </li>
               );
             })}
-            {rows.length === 0 && <li className="empty">此区间暂无用量记录</li>}
+            {rows.length === 0 && <li className="empty">{t('dist.none')}</li>}
           </ol>
         </aside>
       </div>

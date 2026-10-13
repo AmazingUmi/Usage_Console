@@ -9,6 +9,7 @@ const PATHS = {
   chevron: <path d="m9 6 6 6-6 6" />,
   gauge: <><path d="M12 14l4-4" /><path d="M3.3 19a10 10 0 1 1 17.4 0" /></>,
   plus: <><path d="M12 5v14" /><path d="M5 12h14" /></>,
+  settings: <><path d="M4 7h10" /><path d="M18 7h2" /><circle cx="16" cy="7" r="2" /><path d="M4 17h2" /><path d="M10 17h10" /><circle cx="8" cy="17" r="2" /></>,
 } as const;
 
 export type IconName = keyof typeof PATHS;

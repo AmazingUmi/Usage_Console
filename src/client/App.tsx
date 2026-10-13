@@ -5,10 +5,13 @@ import { OverviewDashboard } from './components/OverviewDashboard';
 import { UsageDetailSection } from './components/UsageDetailSection';
 import { SettingsPage } from './components/SettingsPage';
 import { EditAccountDialog } from './components/EditAccountDialog';
+import { AddAccountDialog } from './components/AddAccountDialog';
+import { useI18n } from './i18n';
 import { fetchQuota, refreshQuota, fetchUsageOverview, fetchSettings, syncUsage, trendDaysFor } from './api';
 import { quotaCardsForAccounts } from './lib/providers';
 import { Icon } from './components/Icon';
 import type {
+  AccountType,
   ConsoleSettings,
   QuotaState,
   UsageSummary,
@@ -19,18 +22,22 @@ import type {
   ConnectionState,
 } from './types';
 
-const RANGES: Array<{ id: UsageRange; label: string }> = [
-  { id: 'today', label: '今天' },
-  { id: '7d', label: '7 天' },
-  { id: '30d', label: '30 天' },
-  { id: 'all', label: '全部' },
+const RANGES: Array<{ id: UsageRange; key: string }> = [
+  { id: 'today', key: 'range.today' },
+  { id: '7d', key: 'range.7d' },
+  { id: '30d', key: 'range.30d' },
+  { id: 'all', key: 'range.all' },
 ];
+
+/** Quota is re-read from the server this often; the server itself polls providers every two minutes. */
+const QUOTA_POLL_MS = 60 * 1000;
 
 function isAbortError(err: unknown): boolean {
   return err instanceof DOMException && err.name === 'AbortError';
 }
 
 export const App: React.FC = () => {
+  const { t } = useI18n();
   const [quotaState, setQuotaState] = useState<QuotaState | null>(null);
   const [summary, setSummary] = useState<UsageSummary | null>(null);
   const [trend, setTrend] = useState<DailyTrendPoint[]>([]);
@@ -47,6 +54,8 @@ export const App: React.FC = () => {
   const [settings, setSettings] = useState<ConsoleSettings | null>(null);
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [editingQuota, setEditingQuota] = useState<import('./types').ProviderQuota | null>(null);
+  /** Non-null while the add-account dialog is open; `type` pre-selects the account type. */
+  const [addAccount, setAddAccount] = useState<{ type?: AccountType } | null>(null);
 
   const applyUsageOverview = useCallback((data: Awaited<ReturnType<typeof fetchUsageOverview>>) => {
     setSummary(data.summary);
@@ -97,6 +106,11 @@ export const App: React.FC = () => {
   }, [loadQuota]);
 
   useEffect(() => {
+    const timer = window.setInterval(() => loadQuota(), QUOTA_POLL_MS);
+    return () => window.clearInterval(timer);
+  }, [loadQuota]);
+
+  useEffect(() => {
     const controller = new AbortController();
     setIsLoadingUsage(true);
     loadUsage(range, controller.signal);
@@ -137,18 +151,20 @@ export const App: React.FC = () => {
     return quotaCardsForAccounts(live, settings?.accounts ?? []);
   }, [quotaState, settings]);
 
-  const openSettings = () => {
+  const openSettings = (targetId = 'settings-title') => {
     setSettingsOpen(true);
-    window.requestAnimationFrame(() => {
-      document.getElementById('settings-title')?.scrollIntoView({ behavior: 'smooth', block: 'start' });
-    });
+    // The target may only exist after the panel has rendered, so look it up on the next frames.
+    window.requestAnimationFrame(() => window.requestAnimationFrame(() => {
+      (document.getElementById(targetId) ?? document.getElementById('settings-title'))
+        ?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+    }));
   };
 
   const hideAgyClaude = settings?.hideAgyClaude ?? true;
 
   return (
     <>
-      <a className="skip-link" href="#main">跳至主要内容</a>
+      <a className="skip-link" href="#main">{t('app.skip')}</a>
       <Header
         onRefresh={handleRefresh}
         isRefreshing={isRefreshing}
@@ -165,22 +181,30 @@ export const App: React.FC = () => {
         {error && (
           <div className="callout" data-tone="danger" role="alert" style={{ marginBottom: 16 }}>
             <Icon name="alert" size={15} />
-            <span>数据加载失败：{error}</span>
+            <span>{t('app.loadFailed', { error })}</span>
           </div>
         )}
 
         <section className="section" aria-labelledby="quota-title">
           <div className="section-heading">
             <div>
-              <h2 id="quota-title">剩余额度</h2>
-              <p className="hint">官方订阅窗口的实时剩余比例，只显示已添加的账户</p>
+              <h2 id="quota-title">{t('quota.title')}</h2>
+              <p className="hint">{t('quota.hint')}</p>
+            </div>
+            <div className="quota-actions">
+              <button type="button" className="btn btn-sm btn-primary" onClick={() => setAddAccount({})}>
+                <Icon name="plus" size={13} />{t('quota.add')}
+              </button>
+              <button type="button" className="btn btn-sm" onClick={() => openSettings('account-settings-title')}>
+                <Icon name="settings" size={13} />{t('quota.manage')}
+              </button>
             </div>
           </div>
 
           {providerList.length === 0 ? (
             <div className="quota-empty">
-              <span>{settings ? '还没有账户。登录本机 Claude Code / Codex 后点刷新会自动识别。' : '正在读取账户…'}</span>
-              {settings && <button type="button" className="btn btn-sm" onClick={openSettings}>打开设置</button>}
+              <span>{settings ? t('quota.empty') : t('quota.loadingAccounts')}</span>
+              {settings && <button type="button" className="btn btn-sm btn-primary" onClick={() => setAddAccount({})}>{t('quota.add')}</button>}
             </div>
           ) : (
             <div className="provider-grid">
@@ -190,6 +214,7 @@ export const App: React.FC = () => {
                   quota={quota}
                   includeAgyClaude={!hideAgyClaude}
                   onEdit={setEditingQuota}
+                  onSignIn={(type) => setAddAccount({ type })}
                 />
               ))}
             </div>
@@ -199,13 +224,13 @@ export const App: React.FC = () => {
         <section className="section" aria-labelledby="overview-title">
           <div className="section-heading">
             <div>
-              <h2 id="overview-title">本地用量</h2>
-              <p className="hint">汇总本机 Claude Code、Codex、Pi、Grok 会话日志，费用按 API 标价估算</p>
+              <h2 id="overview-title">{t('overview.title')}</h2>
+              <p className="hint">{t('overview.hint')}</p>
             </div>
-            <div className="segmented" role="group" aria-label="统计范围">
+            <div className="segmented" role="group" aria-label={t('range.aria')}>
               {RANGES.map((item) => (
                 <button key={item.id} type="button" aria-pressed={range === item.id} onClick={() => setRange(item.id)}>
-                  {item.label}
+                  {t(item.key)}
                 </button>
               ))}
             </div>
@@ -220,7 +245,7 @@ export const App: React.FC = () => {
               clients={clients}
             />
           ) : (
-            <div className="panel empty">{isLoadingUsage ? '正在加载用量数据…' : '暂无用量数据'}</div>
+            <div className="panel empty">{isLoadingUsage ? t('overview.loading') : t('overview.none')}</div>
           )}
         </section>
 
@@ -240,7 +265,19 @@ export const App: React.FC = () => {
             if (quota) setQuotaState(quota);
             loadUsage(range);
           }}
+          onAddAccount={(type) => setAddAccount({ type })}
         />
+        {addAccount && (
+          <AddAccountDialog
+            initialType={addAccount.type}
+            onClose={() => setAddAccount(null)}
+            onAdded={(next) => {
+              setSettings(next);
+              // The server refreshes quota right after a login; pick the new reading up shortly.
+              window.setTimeout(() => loadQuota(), 1500);
+            }}
+          />
+        )}
         <EditAccountDialog
           key={editingQuota?.accountCardId || 'none'}
           quota={editingQuota}
@@ -250,7 +287,7 @@ export const App: React.FC = () => {
       </main>
 
       <footer className="app-footer">
-        <p>Usage Console · 数据只在本机读取，不上传</p>
+        <p>{t('app.footer')}</p>
       </footer>
     </>
   );

@@ -1,51 +1,63 @@
 import React, { useEffect, useState } from 'react';
 import type { AccountType, ConsoleSettings } from '../types';
 import { ACCOUNT_TYPE_LABEL } from '../lib/providers';
-import { finishClaudeLogin, pollGptLogin, startClaudeLogin, startGptLogin } from '../api';
+import type { DeviceLoginType } from '../api';
+import { addLocalAgyAccount, finishClaudeLogin, pollDeviceLogin, startClaudeLogin, startDeviceLogin } from '../api';
+import { useI18n } from '../i18n';
 
 interface AddAccountDialogProps {
-  open: boolean;
+  /** Pre-selects the account type, e.g. when signing in from a card that needs it. */
+  initialType?: AccountType;
   onClose: () => void;
   onAdded: (settings: ConsoleSettings) => void;
 }
 
 const TYPES = Object.keys(ACCOUNT_TYPE_LABEL) as AccountType[];
 
-export const AddAccountDialog: React.FC<AddAccountDialogProps> = ({ open, onClose, onAdded }) => {
-  const [type, setType] = useState<AccountType>('gpt');
+/** Mounted only while open, so every opening starts from a clean state. */
+export const AddAccountDialog: React.FC<AddAccountDialogProps> = ({ initialType = 'gpt', onClose, onAdded }) => {
+  const { t } = useI18n();
+  const [type, setType] = useState<AccountType>(initialType);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [gpt, setGpt] = useState<{ deviceCode: string; userCode: string; verificationUri: string } | null>(null);
+  const [device, setDevice] = useState<{ kind: DeviceLoginType; deviceCode: string; userCode: string; verificationUri: string; interval: number } | null>(null);
   const [claude, setClaude] = useState<{ state: string; authorizeUrl: string } | null>(null);
   const [code, setCode] = useState('');
 
   useEffect(() => {
-    if (!open || !gpt) return;
+    if (!device) return;
     let stopped = false;
     const timer = window.setInterval(async () => {
       try {
-        const result = await pollGptLogin(gpt.deviceCode);
+        const result = await pollDeviceLogin(device.kind, device.deviceCode);
         if (stopped || !('settings' in result)) return;
         onAdded(result.settings);
         onClose();
       } catch (err) {
-        if (!stopped) setError((err as Error).message);
+        if (!stopped) {
+          setError((err as Error).message);
+          setDevice(null);
+        }
       }
-    }, 5000);
+    }, Math.max(3, device.interval) * 1000);
     return () => {
       stopped = true;
       window.clearInterval(timer);
     };
-  }, [gpt, onAdded, onClose, open]);
+  }, [device, onAdded, onClose]);
 
-  if (!open) return null;
+  const changeType = (next: AccountType) => {
+    setType(next);
+    setDevice(null);
+    setClaude(null);
+    setError(null);
+  };
 
-  const beginLogin = async () => {
+  const run = async (task: () => Promise<void>) => {
     setBusy(true);
     setError(null);
     try {
-      if (type === 'gpt') setGpt(await startGptLogin());
-      else if (type === 'claude') setClaude(await startClaudeLogin());
+      await task();
     } catch (err) {
       setError((err as Error).message);
     } finally {
@@ -53,58 +65,64 @@ export const AddAccountDialog: React.FC<AddAccountDialogProps> = ({ open, onClos
     }
   };
 
-  const finishClaude = async () => {
+  const beginLogin = () => run(async () => {
+    if (type === 'gpt' || type === 'grok') setDevice({ kind: type, ...(await startDeviceLogin(type)) });
+    else if (type === 'claude') setClaude(await startClaudeLogin());
+  });
+
+  const finishClaude = () => run(async () => {
     if (!claude) return;
-    setBusy(true);
-    setError(null);
-    try {
-      const result = await finishClaudeLogin(claude.state, code);
-      onAdded(result.settings);
-      onClose();
-    } catch (err) {
-      setError((err as Error).message);
-    } finally {
-      setBusy(false);
-    }
-  };
+    const result = await finishClaudeLogin(claude.state, code);
+    onAdded(result.settings);
+    onClose();
+  });
+
+  const addAgy = () => run(async () => {
+    const result = await addLocalAgyAccount();
+    onAdded(result.settings);
+    onClose();
+  });
 
   return (
     <div className="modal-backdrop" role="presentation" onClick={onClose}>
       <div className="modal-card" role="dialog" aria-modal="true" aria-labelledby="add-account-title" onClick={(event) => event.stopPropagation()}>
-        <h3 id="add-account-title">添加账户</h3>
-        <p className="hint">本机已登录 Claude Code 时无需在这里添加，刷新后会自动识别。这里用于添加其他订阅账号：令牌只在内存里读取一次额度，不会写入本项目，也不会覆盖 Claude Code 的登录。</p>
+        <h3 id="add-account-title">{t('add.title')}</h3>
+        <p className="hint">{t('add.intro')}</p>
         <label className="field">
-          <span className="field-label">类型</span>
-          <select className="input" value={type} onChange={(event) => setType(event.target.value as AccountType)}>
+          <span className="field-label">{t('add.type')}</span>
+          <select className="input" value={type} onChange={(event) => changeType(event.target.value as AccountType)}>
             {TYPES.map((item) => <option key={item} value={item}>{ACCOUNT_TYPE_LABEL[item]}</option>)}
           </select>
         </label>
-        {(type === 'gpt' || type === 'claude') && !gpt && !claude && (
+        {type !== 'agy' && !device && !claude && (
           <button type="button" className="btn btn-primary" onClick={beginLogin} disabled={busy}>
-            {busy ? '正在准备…' : '认证登录'}
+            {busy ? t('add.preparing') : t('add.signIn')}
           </button>
         )}
-        {type !== 'gpt' && type !== 'claude' && (
-          <p className="hint">Grok 和 AGY 会在重新扫描时从本机登录识别用户 ID，不能在这里另存一份令牌。</p>
+        {type === 'agy' && (
+          <>
+            <p className="hint">{t('add.agyInfo')}</p>
+            <button type="button" className="btn btn-primary" onClick={addAgy} disabled={busy}>{t('add.agyButton')}</button>
+          </>
         )}
-        {gpt && (
+        {device && (
           <div className="login-box">
-            <p>在浏览器打开验证页，输入代码</p>
-            <p className="user-code">{gpt.userCode}</p>
-            <a href={gpt.verificationUri} target="_blank" rel="noreferrer">{gpt.verificationUri}</a>
-            <p className="hint">等待授权完成，成功后只保存用户 ID。</p>
+            <p>{t('add.deviceStep')}</p>
+            <p className="user-code">{device.userCode}</p>
+            <a href={device.verificationUri} target="_blank" rel="noreferrer">{device.verificationUri}</a>
+            <p className="hint">{t('add.deviceWait')}</p>
           </div>
         )}
         {claude && (
           <div className="login-box">
-            <a href={claude.authorizeUrl} target="_blank" rel="noreferrer">打开 Claude 登录</a>
-            <input className="input" value={code} placeholder="粘贴回调 code" onChange={(event) => setCode(event.target.value)} />
-            <button type="button" className="btn btn-primary" onClick={finishClaude} disabled={busy || !code.trim()}>确认身份</button>
+            <a href={claude.authorizeUrl} target="_blank" rel="noreferrer">{t('add.openClaude')}</a>
+            <input className="input" value={code} placeholder={t('add.pasteCode')} onChange={(event) => setCode(event.target.value)} />
+            <button type="button" className="btn btn-primary" onClick={finishClaude} disabled={busy || !code.trim()}>{t('add.confirm')}</button>
           </div>
         )}
         {error && <p className="callout" data-tone="danger" role="alert">{error}</p>}
         <div className="modal-actions">
-          <button type="button" className="btn" onClick={onClose}>关闭</button>
+          <button type="button" className="btn" onClick={onClose}>{t('add.close')}</button>
         </div>
       </div>
     </div>

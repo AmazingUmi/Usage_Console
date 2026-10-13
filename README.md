@@ -28,15 +28,20 @@
   - 可配置 Codex、Pi、Claude 对话和 Grok 的本地扫描路径。
   - 扫描 Claude Code 本地对话 JSONL（含子代理），并按消息去重。
 
-### Claude Code 本机登录检测
+### 界面
 
-- 凭据来源（按令牌到期时间取最新的一份）：macOS 钥匙串 `Claude Code-credentials`、`$CLAUDE_CONFIG_DIR/.credentials.json`、`~/.claude/.credentials.json`、`~/.config/claude/.credentials.json`。
-- 访问令牌过期时，会用刷新令牌自动续期，并把新令牌写回原处（与 Claude Code 自身行为一致，避免 Claude Code 被登出）。
-- 身份优先读取 `/api/oauth/profile`，失败时回退到 `~/.claude.json` 的 `oauthAccount`；检测到登录后会自动添加 Claude 账户卡。
-- 读取失败时额度卡和「设置 → 本机 Claude Code 登录」会显示具体原因（未登录、已过期、无订阅额度、限流等）。
-- 对话用量默认同时扫描 `~/.claude/projects`、`~/.config/claude/projects` 和 `$CLAUDE_CONFIG_DIR/projects`。
+- 「剩余额度」栏右上角有「添加账户」和「账户设置」按钮；未登录或登录失效的卡片上有「去登录」，会直接打开对应类型的登录。
+- 卡片状态只用呼吸灯表示（绿：正常，黄：注意，红：异常，灰：未连接），鼠标悬停显示文字。重置倒计时用 `1h50m`、`2d3h` 样式。
+- 「设置 → 显示」里可切换中文 / English，只保存在当前浏览器。
+- Antigravity 没有可用的 OAuth 登录，额度来自本机 agy / pi 写入的额度快照；在「添加账户」里选 AGY 即可显示。
 
----
+### 订阅账号：在控制台独立登录（OpenAI / Claude / Grok）
+
+- 在「设置 → 账户 → 添加」里选类型并认证登录：OpenAI、Grok 走官方设备码，Claude 走网页授权后粘贴 code。
+- 登录令牌（未加密，文件权限 0600）保存在数据目录的 `credentials.json`，由本应用自行续期。这是一份独立授权，刷新它不会让 Codex、Claude Code、pi 掉线，也不依赖它们。
+- 订阅账号读额度只使用这份独立登录，不再读取 `~/.codex/auth.json`、macOS 钥匙串里的 Claude Code 登录或 pi 的登录。账户名称取自账户设置里的备注名或邮箱。
+- 账户库里有、但还没登录的账户显示「未登录」卡片，提示去添加账户；删除账户会同时清除它的令牌。
+- 本机 token 用量与登录无关，仍直接扫描本地 session。
 
 ## 快速开始
 

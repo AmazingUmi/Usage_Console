@@ -4,15 +4,17 @@ import path from 'node:path';
 import fs from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import { CONFIG } from './config.js';
+import { L, langMiddleware } from './i18n.js';
 import { loadSettings, resolveDataDir, saveSettings, settingsView } from './settings.js';
 import { queryAllLiveQuotas } from './quota/oauth.js';
 import { usageStore } from './usage/store.js';
 import type { UsageRange } from './usage/types.js';
 import { calibrateData } from './data/calibrate.js';
 import { copyDataIfMissing, loadAccounts, removeAccount, updateAccount, upsertAccounts } from './data/library.js';
-import { getClaudeLocalStatus, lastClaudeLocalStatus } from './identity/claude-local.js';
-import type { ClaudeLocalStatus } from './identity/claude-local.js';
-import { finishClaudeLogin, pollCodexLogin, startClaudeLogin, startCodexLogin } from './identity/login.js';
+import { hasCredential, removeCredential, saveCredential } from './identity/credentials.js';
+import type { CredentialProvider } from './identity/credentials.js';
+import type { LoginResult } from './identity/login.js';
+import { finishClaudeLogin, pollCodexLogin, pollGrokLogin, startClaudeLogin, startCodexLogin, startGrokLogin } from './identity/login.js';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -20,10 +22,11 @@ const __dirname = path.dirname(__filename);
 const app = express();
 app.use(cors());
 app.use(express.json());
+app.use(langMiddleware);
 
 // Initialize usage store and query quotas on server launch
 calibrateData().then(({ count }) => {
-  console.log(`[UsageStore] Calibrated ${count} usage records. OAuth tokens are not stored.`);
+  console.log(`[UsageStore] Calibrated ${count} usage records. Accounts come from console logins only.`);
 }).catch(err => {
   console.error('[UsageStore] Initial sync failed:', err);
 });
@@ -180,28 +183,16 @@ app.get('/api/usage/records', async (req, res) => {
   }
 });
 
-function publicClaudeStatus(status: ClaudeLocalStatus | null) {
-  if (!status) return null;
-  const { subscription, ...rest } = status;
-  return { ...rest, windows: subscription?.windows ?? [] };
-}
-
 function publicSettings() {
   return {
     ...settingsView(usageStore.getScanReport()),
-    accounts: loadAccounts(),
+    accounts: loadAccounts().map((account) => ({
+      ...account,
+      ownLogin: account.type !== 'agy' && hasCredential(account.type, account.userId),
+    })),
     dataDir: resolveDataDir(),
-    claudeLogin: publicClaudeStatus(lastClaudeLocalStatus()),
   };
 }
-
-app.get('/api/claude/status', async (req, res) => {
-  try {
-    res.json(publicClaudeStatus(await getClaudeLocalStatus(req.query.force === 'true')));
-  } catch (err) {
-    res.status(500).json({ error: (err as Error).message });
-  }
-});
 
 app.post('/api/usage/sync', async (_req, res) => {
   try {
@@ -224,19 +215,37 @@ app.post('/api/data/calibrate', async (_req, res) => {
 app.patch('/api/accounts/:id', (req, res) => {
   const account = updateAccount(req.params.id, { label: req.body?.label, notes: req.body?.notes });
   if (!account) {
-    res.status(404).json({ error: '账户不存在' });
+    res.status(404).json({ error: L('账户不存在', 'Account not found') });
     return;
   }
   res.json({ account, settings: publicSettings() });
 });
 
+/** Antigravity has no OAuth we can use: its quota comes from the snapshots the local agy/pi tooling writes. */
+app.post('/api/accounts/agy', (_req, res) => {
+  upsertAccounts([{ type: 'agy', userId: 'agy-local', source: 'scan' }]);
+  queryAllLiveQuotas(true).catch(() => {});
+  res.json({ settings: publicSettings() });
+});
+
 app.delete('/api/accounts/:id', (req, res) => {
+  const account = loadAccounts().find((item) => item.id === req.params.id);
   if (!removeAccount(req.params.id)) {
-    res.status(404).json({ error: '账户不存在' });
+    res.status(404).json({ error: L('账户不存在', 'Account not found') });
     return;
   }
+  if (account && account.type !== 'agy') removeCredential(account.type, account.userId);
   res.json({ success: true, settings: publicSettings() });
 });
+
+/** Stores the new login and answers without the token: the browser only ever learns who signed in. */
+function completeLogin(result: LoginResult, res: express.Response) {
+  const { credential, ...account } = result;
+  saveCredential(account.type as CredentialProvider, credential);
+  upsertAccounts([{ ...account, source: 'login' }]);
+  queryAllLiveQuotas(true).catch(() => {});
+  res.json({ ...account, settings: publicSettings() });
+}
 
 app.post('/api/login/gpt/start', async (_req, res) => {
   try {
@@ -253,8 +262,28 @@ app.post('/api/login/gpt/poll', async (req, res) => {
       res.json(result);
       return;
     }
-    upsertAccounts([{ ...result, source: 'login' }]);
-    res.json({ ...result, settings: publicSettings() });
+    completeLogin(result, res);
+  } catch (err) {
+    res.status(400).json({ error: (err as Error).message });
+  }
+});
+
+app.post('/api/login/grok/start', async (_req, res) => {
+  try {
+    res.json(await startGrokLogin());
+  } catch (err) {
+    res.status(400).json({ error: (err as Error).message });
+  }
+});
+
+app.post('/api/login/grok/poll', async (req, res) => {
+  try {
+    const result = await pollGrokLogin(String(req.body?.deviceCode || ''));
+    if ('pending' in result) {
+      res.json(result);
+      return;
+    }
+    completeLogin(result, res);
   } catch (err) {
     res.status(400).json({ error: (err as Error).message });
   }
@@ -266,9 +295,7 @@ app.post('/api/login/claude/start', (_req, res) => {
 
 app.post('/api/login/claude/finish', async (req, res) => {
   try {
-    const result = await finishClaudeLogin(String(req.body?.state || ''), String(req.body?.code || ''));
-    upsertAccounts([{ ...result, source: 'login' }]);
-    res.json({ ...result, settings: publicSettings() });
+    completeLogin(await finishClaudeLogin(String(req.body?.state || ''), String(req.body?.code || '')), res);
   } catch (err) {
     res.status(400).json({ error: (err as Error).message });
   }

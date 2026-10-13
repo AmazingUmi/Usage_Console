@@ -1,6 +1,7 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import type { DailyTrendPoint } from '../types';
 import { formatTokens, formatUsd } from '../lib/format';
+import { useI18n } from '../i18n';
 
 export type TrendMetric = 'tokens' | 'cost';
 
@@ -11,15 +12,15 @@ interface UsageTrendChartProps {
 
 interface Series {
   key: 'inputTokens' | 'outputTokens' | 'estimatedCostUsd';
-  label: string;
+  labelKey: string;
   color: string;
 }
 
 const TOKEN_SERIES: Series[] = [
-  { key: 'inputTokens', label: '输入', color: 'var(--series-1)' },
-  { key: 'outputTokens', label: '输出', color: 'var(--series-2)' },
+  { key: 'inputTokens', labelKey: 'trend.input', color: 'var(--series-1)' },
+  { key: 'outputTokens', labelKey: 'trend.output', color: 'var(--series-2)' },
 ];
-const COST_SERIES: Series[] = [{ key: 'estimatedCostUsd', label: '估算费用', color: 'var(--series-1)' }];
+const COST_SERIES: Series[] = [{ key: 'estimatedCostUsd', labelKey: 'trend.estCost', color: 'var(--series-1)' }];
 
 export function seriesFor(metric: TrendMetric): Series[] {
   return metric === 'cost' ? COST_SERIES : TOKEN_SERIES;
@@ -56,6 +57,7 @@ function dayLabel(date: string): string {
 }
 
 export const UsageTrendChart: React.FC<UsageTrendChartProps> = ({ trend, metric }) => {
+  const { t, locale } = useI18n();
   const hostRef = useRef<HTMLDivElement>(null);
   const [width, setWidth] = useState(640);
   const [hover, setHover] = useState<number | null>(null);
@@ -83,7 +85,7 @@ export const UsageTrendChart: React.FC<UsageTrendChartProps> = ({ trend, metric 
   }, [trend, width, series]);
 
   if (trend.length === 0) {
-    return <div className="trend-chart is-empty">此区间暂无趋势数据</div>;
+    return <div className="trend-chart is-empty">{t('trend.empty')}</div>;
   }
 
   const yOf = (n: number) => PAD.top + plot.innerH - (n / plot.max) * plot.innerH;
@@ -107,7 +109,7 @@ export const UsageTrendChart: React.FC<UsageTrendChartProps> = ({ trend, metric 
         className="trend-svg"
         viewBox={`0 0 ${width} ${HEIGHT}`}
         role="img"
-        aria-label={metric === 'cost' ? '每日估算费用柱状图' : '每日输入与输出 Token 堆叠柱状图'}
+        aria-label={t(metric === 'cost' ? 'trend.aria.cost' : 'trend.aria.tokens')}
         onPointerMove={onMove}
       >
         {[0, 0.25, 0.5, 0.75, 1].map((ratio) => {
@@ -154,13 +156,13 @@ export const UsageTrendChart: React.FC<UsageTrendChartProps> = ({ trend, metric 
           style={{ left: tooltipLeft, transform: flip ? 'translateX(calc(-100% - 14px))' : 'translateX(14px)' }}
         >
           <strong>{hovered.date}</strong>
-          <div><i style={{ background: 'var(--series-1)' }} />输入<b>{formatTokens(hovered.inputTokens)}</b></div>
-          <div><i style={{ background: 'var(--series-2)' }} />输出<b>{formatTokens(hovered.outputTokens)}</b></div>
-          <div><i style={{ background: 'transparent' }} />缓存命中<b>{formatTokens(hovered.cacheReadTokens ?? 0)}</b></div>
-          <div><i style={{ background: 'transparent' }} />缓存写入<b>{formatTokens(hovered.cacheWriteTokens ?? 0)}</b></div>
+          <div><i style={{ background: 'var(--series-1)' }} />{t('trend.input')}<b>{formatTokens(hovered.inputTokens)}</b></div>
+          <div><i style={{ background: 'var(--series-2)' }} />{t('trend.output')}<b>{formatTokens(hovered.outputTokens)}</b></div>
+          <div><i style={{ background: 'transparent' }} />{t('trend.cacheRead')}<b>{formatTokens(hovered.cacheReadTokens ?? 0)}</b></div>
+          <div><i style={{ background: 'transparent' }} />{t('trend.cacheWrite')}<b>{formatTokens(hovered.cacheWriteTokens ?? 0)}</b></div>
           <hr />
-          <div>估算费用<b>{formatUsd(hovered.estimatedCostUsd, 2)}</b></div>
-          <div>请求<b>{(hovered.requestCount || 0).toLocaleString()} 次</b></div>
+          <div>{t('trend.estCost')}<b>{formatUsd(hovered.estimatedCostUsd, 2)}</b></div>
+          <div>{t('trend.requests')}<b>{t('trend.times', { n: (hovered.requestCount || 0).toLocaleString(locale) })}</b></div>
         </div>
       )}
     </div>

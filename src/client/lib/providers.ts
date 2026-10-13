@@ -15,7 +15,7 @@ const TYPE_PROVIDER: Record<AccountType, string> = {
 };
 
 export const ACCOUNT_TYPE_LABEL: Record<AccountType, string> = {
-  gpt: 'GPT',
+  gpt: 'OpenAI',
   claude: 'Claude',
   grok: 'Grok',
   agy: 'AGY',
@@ -42,11 +42,13 @@ export function quotaCardsForAccounts(live: ProviderQuota[], accounts: ConsoleAc
       email: account.email,
       notes: account.notes,
       accountCardId: account.id,
+      accountType: account.type,
+      ownLogin: account.ownLogin,
     };
     if (match) {
       used.add(match);
       const liveWindows = match.windows?.length ? match.windows : undefined;
-      const stale = !liveWindows && snapshot?.windows?.length && match.status !== 'ok';
+      const stale = Boolean(!liveWindows && snapshot?.windows?.length && match.status !== 'ok');
       return {
         ...match,
         ...base,
@@ -55,9 +57,7 @@ export function quotaCardsForAccounts(live: ProviderQuota[], accounts: ConsoleAc
         windows: liveWindows || snapshot?.windows,
         capturedAt: liveWindows ? match.capturedAt : snapshot?.capturedAt || match.capturedAt || 0,
         status: stale ? 'warning' : match.status,
-        errorMessage: stale
-          ? `${match.errorMessage || '实时读取失败'}（下方为上次读数）`
-          : match.errorMessage,
+        stale,
       };
     }
     if (snapshot?.windows?.length) {
@@ -65,10 +65,11 @@ export function quotaCardsForAccounts(live: ProviderQuota[], accounts: ConsoleAc
         ...base,
         provider: TYPE_PROVIDER[account.type],
         displayName: account.label || ACCOUNT_TYPE_LABEL[account.type],
-        plan: snapshot.plan || '订阅',
+        plan: snapshot.plan,
         capturedAt: snapshot.capturedAt,
         status: 'warning',
-        errorMessage: '本机当前登录不是这个账户，显示的是上次读数。',
+        errorCode: 'login_required',
+        stale: true,
         windows: snapshot.windows,
       };
     }
@@ -78,9 +79,7 @@ export function quotaCardsForAccounts(live: ProviderQuota[], accounts: ConsoleAc
       displayName: account.label || ACCOUNT_TYPE_LABEL[account.type],
       capturedAt: 0,
       status: 'unconfigured',
-      errorMessage: account.type === 'claude'
-        ? '本机 Claude Code 当前登录的不是这个账户，或尚未登录。运行 claude 并 /login 后点刷新。'
-        : '已识别账户，但本机当前登录读不到该账户额度。',
+      errorCode: account.type === 'agy' ? 'agy_unavailable' : 'login_required',
     };
   });
 }

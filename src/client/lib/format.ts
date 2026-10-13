@@ -37,3 +37,16 @@ export function localDateKey(date: Date = new Date()): string {
   const d = String(date.getDate()).padStart(2, '0');
   return `${y}-${m}-${d}`;
 }
+
+/** Compact countdown such as `1h50m`, `2d3h` or `45m`; language-neutral on purpose. */
+export function formatCompactDuration(ms: number): string {
+  if (!Number.isFinite(ms) || ms <= 0) return '<1m';
+  const totalMinutes = Math.floor(ms / 60000);
+  if (totalMinutes < 1) return '<1m';
+  const days = Math.floor(totalMinutes / 1440);
+  const hours = Math.floor((totalMinutes % 1440) / 60);
+  const minutes = totalMinutes % 60;
+  if (days > 0) return hours > 0 ? `${days}d${hours}h` : `${days}d`;
+  if (hours > 0) return minutes > 0 ? `${hours}h${minutes}m` : `${hours}h`;
+  return `${minutes}m`;
+}

@@ -1,6 +1,7 @@
 import React, { useState } from 'react';
 import type { GroupedUsage, TokenUsageRecord } from '../types';
 import { formatDateTime, formatTokens, formatUsd } from '../lib/format';
+import { useI18n } from '../i18n';
 
 interface UsageDetailSectionProps {
   models: GroupedUsage[];
@@ -21,18 +22,20 @@ function PercentageCell({ value }: { value: number }) {
   );
 }
 
-const GroupTable: React.FC<{ items: GroupedUsage[]; nameLabel: string; mono?: boolean }> = ({ items, nameLabel, mono }) => (
+const GroupTable: React.FC<{ items: GroupedUsage[]; nameLabel: string; mono?: boolean }> = ({ items, nameLabel, mono }) => {
+  const { t, locale } = useI18n();
+  return (
   <table className="data-table">
     <thead>
       <tr>
         <th>{nameLabel}</th>
-        <th>占比</th>
+        <th>{t('detail.share')}</th>
         <th className="num">Tokens</th>
-        <th className="num">输入</th>
-        <th className="num">输出</th>
-        <th className="num">推理</th>
-        <th className="num">请求</th>
-        <th className="num">估算费用</th>
+        <th className="num">{t('detail.input')}</th>
+        <th className="num">{t('detail.output')}</th>
+        <th className="num">{t('detail.reasoning')}</th>
+        <th className="num">{t('detail.requests')}</th>
+        <th className="num">{t('detail.cost')}</th>
       </tr>
     </thead>
     <tbody>
@@ -44,55 +47,57 @@ const GroupTable: React.FC<{ items: GroupedUsage[]; nameLabel: string; mono?: bo
           <td className="num muted">{formatTokens(item.inputTokens)}</td>
           <td className="num muted">{formatTokens(item.outputTokens)}</td>
           <td className="num muted">{item.reasoningTokens ? formatTokens(item.reasoningTokens) : '—'}</td>
-          <td className="num">{(item.requestCount || 0).toLocaleString()}</td>
+          <td className="num">{(item.requestCount || 0).toLocaleString(locale)}</td>
           <td className="num strong">{formatUsd(item.estimatedCostUsd, 2)}</td>
         </tr>
       ))}
       {items.length === 0 && (
-        <tr><td colSpan={8} className="empty">暂无记录</td></tr>
+        <tr><td colSpan={8} className="empty">{t('detail.noRecords')}</td></tr>
       )}
     </tbody>
   </table>
-);
+  );
+};
 
 export const UsageDetailSection: React.FC<UsageDetailSectionProps> = ({ models, clients, records }) => {
+  const { t } = useI18n();
   const [tab, setTab] = useState<Tab>('software');
 
   return (
     <section className="section" aria-labelledby="usage-title">
       <div className="section-heading">
         <div>
-          <h2 id="usage-title">明细</h2>
-          <p className="hint">按软件、模型汇总，或查看最近的每次请求</p>
+          <h2 id="usage-title">{t('detail.title')}</h2>
+          <p className="hint">{t('detail.hint')}</p>
         </div>
-        <div className="segmented" role="group" aria-label="明细视图">
+        <div className="segmented" role="group" aria-label={t('detail.aria')}>
           <button type="button" aria-pressed={tab === 'software'} onClick={() => setTab('software')}>
-            软件<span className="count">{clients.length}</span>
+            {t('detail.software')}<span className="count">{clients.length}</span>
           </button>
           <button type="button" aria-pressed={tab === 'model'} onClick={() => setTab('model')}>
-            模型<span className="count">{models.length}</span>
+            {t('detail.model')}<span className="count">{models.length}</span>
           </button>
           <button type="button" aria-pressed={tab === 'records'} onClick={() => setTab('records')}>
-            最近请求<span className="count">{records.length}</span>
+            {t('detail.recent')}<span className="count">{records.length}</span>
           </button>
         </div>
       </div>
 
       <div className="panel table-scroll">
-        {tab === 'software' && <GroupTable items={clients} nameLabel="软件" />}
-        {tab === 'model' && <GroupTable items={models} nameLabel="模型" mono />}
+        {tab === 'software' && <GroupTable items={clients} nameLabel={t('detail.software')} />}
+        {tab === 'model' && <GroupTable items={models} nameLabel={t('detail.model')} mono />}
         {tab === 'records' && (
           <table className="data-table">
             <thead>
               <tr>
-                <th>时间</th>
-                <th>软件</th>
-                <th>模型</th>
-                <th className="num">输入</th>
-                <th className="num">输出</th>
-                <th className="num">缓存命中</th>
-                <th className="num">缓存写入</th>
-                <th className="num">估算费用</th>
+                <th>{t('detail.time')}</th>
+                <th>{t('detail.software')}</th>
+                <th>{t('detail.model')}</th>
+                <th className="num">{t('detail.input')}</th>
+                <th className="num">{t('detail.output')}</th>
+                <th className="num">{t('detail.cacheHit')}</th>
+                <th className="num">{t('detail.cacheWrite')}</th>
+                <th className="num">{t('detail.cost')}</th>
               </tr>
             </thead>
             <tbody>
@@ -104,7 +109,7 @@ export const UsageDetailSection: React.FC<UsageDetailSectionProps> = ({ models, 
                   <td className="num">{formatTokens(record.input)}</td>
                   <td className="num">
                     {formatTokens(record.output)}
-                    {record.reasoning ? <span className="hint"> （推理 {formatTokens(record.reasoning)}）</span> : null}
+                    {record.reasoning ? <span className="hint">{t('detail.reasoningNote', { n: formatTokens(record.reasoning) })}</span> : null}
                   </td>
                   <td className="num muted">{record.cacheRead ? formatTokens(record.cacheRead) : '—'}</td>
                   <td className="num muted">{record.cacheWrite ? formatTokens(record.cacheWrite) : '—'}</td>
@@ -112,7 +117,7 @@ export const UsageDetailSection: React.FC<UsageDetailSectionProps> = ({ models, 
                 </tr>
               ))}
               {records.length === 0 && (
-                <tr><td colSpan={8} className="empty">暂无请求记录</td></tr>
+                <tr><td colSpan={8} className="empty">{t('detail.noRequests')}</td></tr>
               )}
             </tbody>
           </table>

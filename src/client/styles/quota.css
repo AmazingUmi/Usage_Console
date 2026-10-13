@@ -17,6 +17,16 @@
 .provider-title h3 { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .provider-title p { margin-top: 1px; overflow: hidden; color: var(--muted); font-size: 12px; text-overflow: ellipsis; white-space: nowrap; }
 
+.status-dot {
+  --dot: var(--muted); flex: none; width: 9px; height: 9px; margin: 7px 2px 0 0; border-radius: 50%;
+  background: var(--dot); box-shadow: 0 0 0 3px color-mix(in srgb, var(--dot) 22%, transparent);
+}
+.status-dot[data-status="ok"] { --dot: var(--good); animation: breathe 2.8s ease-in-out infinite; }
+.status-dot[data-status="warning"] { --dot: var(--warning); animation: breathe 2.8s ease-in-out infinite; }
+.status-dot[data-status="error"] { --dot: var(--danger); animation: breathe 1.6s ease-in-out infinite; }
+.status-dot[data-status="unconfigured"] { opacity: .55; }
+@media (prefers-reduced-motion: reduce) { .status-dot { animation: none !important; } }
+
 .quota-body { flex: 1; display: flex; flex-direction: column; justify-content: center; gap: 14px; padding: 10px 18px 16px; }
 
 .gauge { display: grid; grid-template-columns: repeat(var(--cols, 2), minmax(0, 1fr)); gap: 18px 8px; justify-items: center; align-items: start; }
@@ -86,6 +96,7 @@
 }
 
 .quota-empty { display: grid; gap: 10px; place-items: center; padding: 30px 20px; color: var(--muted); text-align: center; }
+.quota-actions { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
 
 @media (prefers-color-scheme: dark) {
   .gauge-row { --sep: rgb(14 20 28 / 55%); }

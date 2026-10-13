@@ -4,8 +4,11 @@ import path from 'node:path';
 import { CONFIG } from '../config.js';
 import type { ProviderQuota, QuotaState, QuotaWindow } from './types.js';
 import { getLatestQuotaState } from './scanner.js';
-import { getClaudeLocalStatus } from '../identity/claude-local.js';
-import { upsertAccounts } from '../data/library.js';
+import { loadAccounts } from '../data/library.js';
+import { fetchClaudeAccountQuota } from '../identity/claude-account.js';
+import { listCredentials, withToken } from '../identity/credentials.js';
+import type { CredentialProvider } from '../identity/credentials.js';
+import { OAuthLoginError } from '../identity/credentials.js';
 
 interface RawCodexResponse {
   user_id?: string;
@@ -37,6 +40,12 @@ interface RawGrokResponse {
   };
 }
 
+class HttpStatusError extends Error {
+  constructor(public readonly status: number, message: string) {
+    super(message);
+  }
+}
+
 let cachedQuotaState: QuotaState | null = null;
 let lastFetchTime = 0;
 const CACHE_TTL_MS = 60 * 1000; // 60s cache
@@ -60,34 +69,28 @@ export async function fetchLiveCodexQuota(
   });
 
   if (!res.ok) {
-    throw new Error(`Codex API responded with HTTP ${res.status}`);
+    throw new HttpStatusError(res.status, `Codex API responded with HTTP ${res.status}`);
   }
 
   const data = (await res.json()) as RawCodexResponse;
   const rateLimit = data.rate_limit;
   const windows: QuotaWindow[] = [];
 
-  if (rateLimit?.primary_window) {
-    const pw = rateLimit.primary_window;
-    const remaining = Math.max(0, 100 - pw.used_percent);
+  // Some plans only expose a weekly window as "primary", so name each window by its length, not its slot.
+  const pushWindow = (
+    raw: { used_percent: number; limit_window_seconds?: number; reset_at?: number },
+    fallbackMinutes: number
+  ) => {
+    const windowMinutes = raw.limit_window_seconds ? Math.round(raw.limit_window_seconds / 60) : fallbackMinutes;
     windows.push({
-      label: '5-Hour Limit',
-      remainingPercent: remaining,
-      resetAt: pw.reset_at ? pw.reset_at * 1000 : undefined,
-      windowMinutes: pw.limit_window_seconds ? Math.round(pw.limit_window_seconds / 60) : 300,
+      label: windowMinutes >= 5 * 24 * 60 ? 'Weekly Limit' : '5-Hour Limit',
+      remainingPercent: Math.max(0, 100 - raw.used_percent),
+      resetAt: raw.reset_at ? raw.reset_at * 1000 : undefined,
+      windowMinutes,
     });
-  }
-
-  if (rateLimit?.secondary_window) {
-    const sw = rateLimit.secondary_window;
-    const remaining = Math.max(0, 100 - sw.used_percent);
-    windows.push({
-      label: 'Weekly Limit',
-      remainingPercent: remaining,
-      resetAt: sw.reset_at ? sw.reset_at * 1000 : undefined,
-      windowMinutes: sw.limit_window_seconds ? Math.round(sw.limit_window_seconds / 60) : 10080,
-    });
-  }
+  };
+  if (rateLimit?.primary_window) pushWindow(rateLimit.primary_window, 300);
+  if (rateLimit?.secondary_window) pushWindow(rateLimit.secondary_window, 10080);
 
   const plan = data.plan_type === 'prolite' ? 'Pro Lite' : data.plan_type || 'Active';
 
@@ -102,7 +105,20 @@ export async function fetchLiveCodexQuota(
   };
 }
 
-export async function fetchLiveGrokQuota(token: string, label = 'xAI Grok'): Promise<ProviderQuota> {
+function failedQuota(provider: string, displayName: string, err: unknown, accountId?: string): ProviderQuota {
+  const expired = err instanceof OAuthLoginError;
+  return {
+    provider,
+    displayName,
+    capturedAt: Date.now(),
+    status: 'error',
+    errorCode: expired ? 'login_expired' : 'read_failed',
+    errorMessage: (err as Error).message,
+    accountId,
+  };
+}
+
+export async function fetchLiveGrokQuota(token: string, label = 'xAI Grok', accountId?: string): Promise<ProviderQuota> {
   const headers: Record<string, string> = {
     Authorization: `Bearer ${token}`,
     Accept: 'application/json',
@@ -114,7 +130,7 @@ export async function fetchLiveGrokQuota(token: string, label = 'xAI Grok'): Pro
   });
 
   if (!res.ok) {
-    throw new Error(`Grok API responded with HTTP ${res.status}`);
+    throw new HttpStatusError(res.status, `Grok API responded with HTTP ${res.status}`);
   }
 
   const data = (await res.json()) as RawGrokResponse;
@@ -133,6 +149,7 @@ export async function fetchLiveGrokQuota(token: string, label = 'xAI Grok'): Pro
     plan: 'SuperGrok',
     capturedAt: Date.now(),
     status: 'ok',
+    accountId,
     windows: [
       {
         label: 'Weekly Credit',
@@ -144,6 +161,8 @@ export async function fetchLiveGrokQuota(token: string, label = 'xAI Grok'): Pro
   };
 }
 
+const isHttp401 = (err: unknown) => err instanceof HttpStatusError && err.status === 401;
+
 export async function queryAllLiveQuotas(forceRefresh = false): Promise<QuotaState> {
   const now = Date.now();
   if (!forceRefresh && cachedQuotaState && now - lastFetchTime < CACHE_TTL_MS) {
@@ -152,106 +171,62 @@ export async function queryAllLiveQuotas(forceRefresh = false): Promise<QuotaSta
 
   const providers: Record<string, ProviderQuota> = {};
   const tasks: Promise<void>[] = [];
-  const seenAccountIds = new Set<string>();
+  const seen: Record<CredentialProvider, Set<string>> = { gpt: new Set(), claude: new Set(), grok: new Set() };
 
-  // Load account identities mapping if exists
-  const notesMap: Record<string, { note?: string; email?: string; plan?: string }> = {};
-  try {
-    const identPath = path.join(CONFIG.paths.piQuotaMonitor, 'account-identities.json');
-    if (fsSync.existsSync(identPath)) {
-      const idData = JSON.parse(await fs.readFile(identPath, 'utf8'));
-      if (Array.isArray(idData.accounts)) {
-        for (const acc of idData.accounts) {
-          if (acc.accountId) {
-            notesMap[acc.accountId] = { note: acc.note, email: acc.email, plan: acc.plan };
-          }
-        }
-      }
-    }
-  } catch {}
+  const library = loadAccounts();
+  /** `Codex` or `Codex [备注名]`: the bracket only appears when the account has a name of its own. */
+  const titleFor = (type: 'gpt' | 'claude' | 'grok', accountId: string, base: string): string => {
+    const saved = library.find((account) => account.type === type && account.userId === accountId);
+    return saved?.label ? `${base} [${saved.label}]` : base;
+  };
 
-  // 1. Check ~/.codex/auth.json for Codex Primary OAuth
-  try {
-    const codexAuthPath = CONFIG.paths.codexAuth;
-    if (fsSync.existsSync(codexAuthPath)) {
-      const content = await fs.readFile(codexAuthPath, 'utf8');
-      const auth = JSON.parse(content);
-      const token = auth.tokens?.access_token;
-      const accountId = auth.tokens?.account_id as string | undefined;
-
-      if (token) {
-        if (accountId) seenAccountIds.add(accountId);
-        const note = accountId && notesMap[accountId]?.note ? notesMap[accountId].note : 'Primary';
-        tasks.push(
-          fetchLiveCodexQuota(token, accountId, `Codex [${note}]`)
-            .then((quota) => {
-              providers['codex_primary'] = quota;
-            })
-            .catch((err) => {
-              console.warn('[Quota] Codex live query failed:', err.message);
-            })
-        );
-      }
-    }
-  } catch (err) {
-    console.warn('[Quota] Failed to read Codex auth:', err);
+  // 1. Accounts logged in through this console: their own OAuth grant, refreshed here. Nothing else is read for them.
+  for (const credential of listCredentials('gpt')) {
+    const id = credential.accountId;
+    seen.gpt.add(id);
+    const label = titleFor('gpt', id, 'Codex');
+    const key = `codex_${id}`;
+    tasks.push(
+      withToken('gpt', credential, (token) => fetchLiveCodexQuota(token, id, label), isHttp401)
+        .then((quota) => { providers[key] = quota; })
+        .catch((err: Error) => {
+          console.warn(`[Quota] ${label} live query failed:`, err.message);
+          providers[key] = failedQuota('codex', label, err, id);
+        })
+    );
   }
 
-  // 2. Check ~/.pi/agent/pi-quota-monitor/accounts/ for any other Codex accounts (e.g. obr.json, lyy.json)
-  try {
-    const accountsDir = path.join(CONFIG.paths.piQuotaMonitor, 'accounts');
-    if (fsSync.existsSync(accountsDir)) {
-      const files = await fs.readdir(accountsDir);
-      for (const file of files) {
-        if (!file.endsWith('.json') || file === 'current.json') continue;
-        try {
-          const accContent = await fs.readFile(path.join(accountsDir, file), 'utf8');
-          const accJson = JSON.parse(accContent);
-          if (accJson.type === 'oauth' && accJson.access && accJson.accountId) {
-            const accId = accJson.accountId as string;
-            if (seenAccountIds.has(accId)) continue;
-            seenAccountIds.add(accId);
-            const note = notesMap[accId]?.note || path.basename(file, '.json');
-            const key = `codex_${path.basename(file, '.json')}`;
-            tasks.push(
-              fetchLiveCodexQuota(accJson.access, accId, `Codex [${note}]`)
-                .then((quota) => {
-                  providers[key] = quota;
-                })
-                .catch(() => {
-                  // Expired or unauthorized extra accounts can be ignored.
-                })
-            );
-          }
-        } catch {}
-      }
-    }
-  } catch {}
-
-  // 3. Check ~/.pi/agent/auth.json for Grok OAuth
-  try {
-    const piAuthPath = path.join(CONFIG.paths.piAgent, 'auth.json');
-    if (fsSync.existsSync(piAuthPath)) {
-      const content = await fs.readFile(piAuthPath, 'utf8');
-      const auth = JSON.parse(content);
-
-      if (auth.xai?.access) {
-        tasks.push(
-          fetchLiveGrokQuota(auth.xai.access, 'xAI Grok [小狗蛇]')
-            .then((quota) => {
-              providers['grok'] = quota;
-            })
-            .catch((err) => {
-              console.warn('[Quota] Grok live query failed:', err.message);
-            })
-        );
-      }
-    }
-  } catch (err) {
-    console.warn('[Quota] Failed to read Pi auth:', err);
+  for (const credential of listCredentials('claude')) {
+    const id = credential.accountId;
+    seen.claude.add(id);
+    const label = titleFor('claude', id, 'Claude');
+    const key = `claude_${id}`;
+    tasks.push(
+      fetchClaudeAccountQuota(credential, label)
+        .then((quota) => { providers[key] = quota; })
+        .catch((err: Error) => {
+          console.warn(`[Quota] ${label} live query failed:`, err.message);
+          providers[key] = failedQuota('claude', label, err, id);
+        })
+    );
   }
 
-  // 4. Antigravity Quota
+  for (const credential of listCredentials('grok')) {
+    const id = credential.accountId;
+    seen.grok.add(id);
+    const label = titleFor('grok', id, 'xAI Grok');
+    const key = `grok_${id}`;
+    tasks.push(
+      withToken('grok', credential, (token) => fetchLiveGrokQuota(token, label, id), isHttp401)
+        .then((quota) => { providers[key] = quota; })
+        .catch((err: Error) => {
+          console.warn(`[Quota] ${label} live query failed:`, err.message);
+          providers[key] = failedQuota('grok', label, err, id);
+        })
+    );
+  }
+
+  // 2. Antigravity: read from the quota snapshots on disk, not an OAuth login of ours.
   try {
     const agyFile = path.join(CONFIG.paths.piQuotaReadings, 'antigravity-shared', 'latest.json');
     if (fsSync.existsSync(agyFile)) {
@@ -271,31 +246,24 @@ export async function queryAllLiveQuotas(forceRefresh = false): Promise<QuotaSta
   // Await all live queries
   await Promise.allSettled(tasks);
 
-  try {
-    const claude = await getClaudeLocalStatus(forceRefresh);
-    if (claude.userId) {
-      upsertAccounts([{
-        type: 'claude',
-        userId: claude.userId,
-        email: claude.email,
-        source: 'scan',
-        subscription: claude.subscription,
-      }]);
-    }
-    if (claude.state !== 'not_logged_in' || claude.userId) {
-      providers.claude = {
-        provider: 'claude',
-        displayName: claude.email ? `Claude (${claude.email})` : 'Claude',
-        plan: claude.subscription?.plan || claude.plan || '订阅',
-        capturedAt: claude.subscription?.capturedAt || claude.checkedAt,
-        status: claude.state === 'ok' ? 'ok' : claude.state === 'no_subscription' ? 'warning' : 'error',
-        errorMessage: claude.state === 'ok' ? undefined : claude.message,
-        windows: claude.subscription?.windows,
-        accountId: claude.userId,
-      };
-    }
-  } catch (err) {
-    console.warn('[Quota] Claude local login check failed:', (err as Error).message);
+  // 3. Subscription accounts need a console login by default; without one, say what to do instead of hiding them.
+  const SETUP: Array<{ type: 'gpt' | 'claude' | 'grok'; provider: string; name: string; prefix: string; vendor: string }> = [
+    { type: 'gpt', provider: 'codex', name: 'Codex', prefix: 'codex_', vendor: 'OpenAI' },
+    { type: 'claude', provider: 'claude', name: 'Claude', prefix: 'claude_', vendor: 'Claude' },
+    { type: 'grok', provider: 'grok', name: 'xAI Grok', prefix: 'grok_', vendor: 'Grok' },
+  ];
+  for (const account of loadAccounts()) {
+    const setup = SETUP.find((item) => item.type === account.type);
+    if (!setup || seen[setup.type].has(account.userId)) continue;
+    providers[`${setup.prefix}${account.userId}`] = {
+      provider: setup.provider,
+      displayName: titleFor(setup.type, account.userId, setup.name),
+      capturedAt: Date.now(),
+      status: 'unconfigured',
+      errorCode: 'login_required',
+      errorMessage: `This ${setup.vendor} account is not signed in to this console yet. Use "Add account" to authenticate once.`,
+      accountId: account.userId,
+    };
   }
 
   try {
@@ -304,7 +272,7 @@ export async function queryAllLiveQuotas(forceRefresh = false): Promise<QuotaSta
       const alreadyPresent = Object.values(providers).some((item) => {
         return item.provider === quota.provider || item.displayName === quota.displayName;
       });
-      if (!alreadyPresent && quota.status === 'ok') {
+      if (!alreadyPresent && quota.provider === 'antigravity' && quota.status === 'ok') {
         providers[key] = {
           ...quota,
           displayName: quota.displayName.includes('(Cached)') ? quota.displayName : `${quota.displayName} (Cached)`,

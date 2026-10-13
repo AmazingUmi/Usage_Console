@@ -1,4 +1,5 @@
 import React from 'react';
+import { getLang, translate } from '../i18n';
 
 interface ErrorBoundaryProps {
   children: React.ReactNode;
@@ -21,12 +22,13 @@ export class ErrorBoundary extends React.Component<ErrorBoundaryProps, ErrorBoun
 
   render() {
     if (!this.state.error) return this.props.children;
+    const t = (key: string) => translate(getLang(), key);
 
     return (
       <main className="shell">
         <section className="panel" style={{ padding: '28px 32px', marginTop: '24px' }}>
-          <h1 style={{ marginBottom: '8px' }}>页面渲染失败</h1>
-          <p className="hint">控制台遇到未处理的界面错误，已拦截以避免整页空白。</p>
+          <h1 style={{ marginBottom: '8px' }}>{t('error.title')}</h1>
+          <p className="hint">{t('error.body')}</p>
           <p className="notice" style={{ marginTop: '16px' }}>
             {this.state.error.message}
           </p>
@@ -36,7 +38,7 @@ export class ErrorBoundary extends React.Component<ErrorBoundaryProps, ErrorBoun
             style={{ marginTop: '18px' }}
             onClick={() => window.location.reload()}
           >
-            重新加载
+            {t('error.reload')}
           </button>
         </section>
       </main>

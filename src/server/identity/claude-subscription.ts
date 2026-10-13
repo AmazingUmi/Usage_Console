@@ -1,3 +1,4 @@
+import { L } from '../i18n.js';
 import type { QuotaWindow } from '../quota/types.js';
 
 export interface ClaudeSubscription {
@@ -52,10 +53,10 @@ function windowFrom(label: string, windowMinutes: number, used: unknown, resets:
 
 /** Fixed windows returned by /api/oauth/usage, in display order. Null entries mean "not on this plan". */
 const FIXED_WINDOWS: Array<{ key: string; label: string; minutes: number }> = [
-  { key: 'five_hour', label: '5 小时', minutes: 300 },
-  { key: 'seven_day', label: '每周', minutes: 10080 },
-  { key: 'seven_day_opus', label: 'Opus 每周', minutes: 10080 },
-  { key: 'seven_day_sonnet', label: 'Sonnet 每周', minutes: 10080 },
+  { key: 'five_hour', label: '5-Hour Limit', minutes: 300 },
+  { key: 'seven_day', label: 'Weekly Limit', minutes: 10080 },
+  { key: 'seven_day_opus', label: 'Opus Weekly Limit', minutes: 10080 },
+  { key: 'seven_day_sonnet', label: 'Sonnet Weekly Limit', minutes: 10080 },
 ];
 
 export function parseClaudeSubscription(usage: unknown, plan?: string): ClaudeSubscription | null {
@@ -76,7 +77,7 @@ export function parseClaudeSubscription(usage: unknown, plan?: string): ClaudeSu
     if (scope.surface) continue;
     const model = text(record(scope.model)?.display_name);
     if (!model) continue;
-    const label = `${model} 每周`;
+    const label = `${model} Weekly Limit`;
     if (windows.some((window) => window.label === label)) continue;
     const parsed = windowFrom(label, 10080, item.percent ?? item.utilization, item.resets_at);
     if (parsed) windows.push(parsed);
@@ -105,7 +106,7 @@ export async function queryClaudeProfile(accessToken: string): Promise<{
   const account = record(profile.account) || {};
   const organization = record(profile.organization) || {};
   const userId = text(account.uuid);
-  if (!userId) throw new Error('没有识别到 Claude 用户 ID');
+  if (!userId) throw new Error('Could not identify the Claude user ID');
   let plan = text(organization.organization_type) || text(organization.subscription_type) || text(account.subscription_type);
   if (/max/i.test(plan)) plan = 'max';
   else if (/pro/i.test(plan)) plan = 'pro';
@@ -132,14 +133,14 @@ export async function queryClaudeSubscription(accessToken: string): Promise<{ us
     profile = await queryClaudeProfile(accessToken);
   } catch (err) {
     const status = err instanceof ClaudeHttpError ? `（HTTP ${err.status}）` : '';
-    throw new Error(`Claude 订阅身份读取失败${status}`);
+    throw new Error(L(`Claude 订阅身份读取失败${status}`, `Could not read the Claude account identity${status}`));
   }
   try {
     const subscription = await queryClaudeUsage(accessToken, profile.plan);
     return { userId: profile.userId, email: profile.email, subscription };
   } catch (err) {
     if (err instanceof ClaudeHttpError && (err.status === 401 || err.status === 403)) {
-      throw new Error('这个登录不能读取 Claude 订阅额度。请用订阅账号重新认证，不要使用 API Key 授权。');
+      throw new Error(L('这个登录不能读取 Claude 订阅额度。请用订阅账号重新认证，不要使用 API Key 授权。', 'This login cannot read Claude subscription quota. Sign in with a subscription account, not an API key.'));
     }
     return { userId: profile.userId, email: profile.email, subscription: null };
   }

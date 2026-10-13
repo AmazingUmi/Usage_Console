@@ -1,5 +1,6 @@
 import React, { useEffect, useState } from 'react';
 import type { ConnectionState } from '../types';
+import { useI18n } from '../i18n';
 import { Icon } from './Icon';
 
 interface HeaderProps {
@@ -11,17 +12,11 @@ interface HeaderProps {
   onToggleSettings: () => void;
 }
 
-const STATUS_LABEL: Record<ConnectionState, string> = {
-  connecting: '正在连接本地服务',
-  connected: '已连接本地服务',
-  offline: '本地服务连接失败',
-};
-
 const NAV_ITEMS = [
-  { id: 'quota-title', label: '额度' },
-  { id: 'overview-title', label: '用量' },
-  { id: 'usage-title', label: '明细' },
-  { id: 'settings-title', label: '设置' },
+  { id: 'quota-title', key: 'nav.quota' },
+  { id: 'overview-title', key: 'nav.overview' },
+  { id: 'usage-title', key: 'nav.detail' },
+  { id: 'settings-title', key: 'nav.settings' },
 ] as const;
 
 /** Highlights the nav item of the section currently under the top of the viewport. */
@@ -60,16 +55,18 @@ export const Header: React.FC<HeaderProps> = ({
   onToggleSettings,
 }) => {
   const active = useActiveSection();
+  const { t, locale } = useI18n();
+  const statusLabel = t(`conn.${connectionState}`);
 
   return (
     <header className="app-header">
       <div className="header-inner">
-        <a className="brand" href="#main" aria-label="Usage Console 首页">
+        <a className="brand" href="#main" aria-label={t('header.home')}>
           <span className="brand-mark" aria-hidden="true"><Icon name="gauge" size={16} /></span>
           Usage Console
         </a>
-        <nav className="main-nav" aria-label="页面导航">
-          {NAV_ITEMS.map(({ id, label }) => (
+        <nav className="main-nav" aria-label={t('nav.aria')}>
+          {NAV_ITEMS.map(({ id, key }) => (
             id === 'settings-title' ? (
               <button
                 key={id}
@@ -79,10 +76,10 @@ export const Header: React.FC<HeaderProps> = ({
                 aria-current={active === id ? 'location' : undefined}
                 onClick={onToggleSettings}
               >
-                {label}
+                {t(key)}
               </button>
             ) : (
-              <a key={id} href={`#${id}`} aria-current={active === id ? 'location' : undefined}>{label}</a>
+              <a key={id} href={`#${id}`} aria-current={active === id ? 'location' : undefined}>{t(key)}</a>
             )
           ))}
         </nav>
@@ -91,10 +88,10 @@ export const Header: React.FC<HeaderProps> = ({
             className="connection-status"
             data-state={connectionState}
             role="status"
-            aria-label={STATUS_LABEL[connectionState]}
-            title={STATUS_LABEL[connectionState]}
+            aria-label={statusLabel}
+            title={statusLabel}
           />
-          {lastUpdated && <span className="updated">更新于 {new Date(lastUpdated).toLocaleTimeString()}</span>}
+          {lastUpdated && <span className="updated">{t('header.updated', { time: new Date(lastUpdated).toLocaleTimeString(locale) })}</span>}
           <button
             type="button"
             className="btn"
@@ -103,7 +100,7 @@ export const Header: React.FC<HeaderProps> = ({
             aria-busy={isRefreshing}
           >
             <Icon name="refresh" size={14} className={isRefreshing ? 'is-spinning' : undefined} />
-            {isRefreshing ? '刷新中' : '刷新'}
+            {isRefreshing ? t('header.refreshing') : t('header.refresh')}
           </button>
         </div>
       </div>

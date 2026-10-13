@@ -76,7 +76,7 @@ function sanitizeSubscription(input: unknown): AccountSubscription | undefined {
     const remainingPercent = Number(window.remainingPercent);
     if (!Number.isFinite(remainingPercent)) return [];
     return [{
-      label: cleanText(window.label, 40) || '订阅',
+      label: cleanText(window.label, 40) || 'Subscription',
       remainingPercent: Math.max(0, Math.min(100, remainingPercent)),
       ...(typeof window.resetAt === 'number' ? { resetAt: window.resetAt } : {}),
       ...(typeof window.windowMinutes === 'number' ? { windowMinutes: window.windowMinutes } : {}),
@@ -221,7 +221,7 @@ export function attributeUsage(records: TokenUsageRecord[], accounts: ManagedAcc
 export function copyDataIfMissing(fromDir: string, toDir: string): void {
   if (!fromDir || fromDir === toDir) return;
   fs.mkdirSync(toDir, { recursive: true });
-  for (const name of ['accounts.json', 'usage.jsonl']) {
+  for (const name of ['accounts.json', 'usage.jsonl', 'credentials.json']) {
     const source = path.join(fromDir, name);
     const target = path.join(toDir, name);
     if (fs.existsSync(source) && !fs.existsSync(target)) fs.copyFileSync(source, target);

@@ -48,6 +48,8 @@ export interface ScanSourceStatus {
   filesScanned: number;
   records: number;
   note?: string;
+  /** Machine-readable notes (`dedupe`, `truncated:N`, `errors:N`) the UI translates. */
+  noteCodes?: string[];
 }
 
 export interface ScanReport {

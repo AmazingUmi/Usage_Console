@@ -16,6 +16,7 @@ export interface ProviderQuota {
   plan?: string;
   capturedAt: number;
   status: 'ok' | 'warning' | 'error' | 'unconfigured';
+  errorCode?: 'login_required' | 'login_expired' | 'no_subscription' | 'rate_limited' | 'read_failed' | 'agy_unavailable';
   errorMessage?: string;
   windows?: QuotaWindow[];
   groups?: QuotaGroup[];
@@ -24,6 +25,11 @@ export interface ProviderQuota {
   email?: string;
   notes?: string;
   accountCardId?: string;
+  accountType?: AccountType;
+  /** The card shows the last stored reading because the live read failed. */
+  stale?: boolean;
+  /** The account has its own login in this console (set from the account list). */
+  ownLogin?: boolean;
 }
 
 export interface QuotaState {
@@ -121,6 +127,8 @@ export interface ConsoleAccount {
   email?: string;
   source?: 'scan' | 'login';
   subscription?: AccountSubscription;
+  /** True when this console holds the account's own refreshable login. */
+  ownLogin?: boolean;
 }
 
 export interface ScanSourceStatus {
@@ -131,20 +139,7 @@ export interface ScanSourceStatus {
   filesScanned: number;
   records: number;
   note?: string;
-}
-
-export interface ClaudeLoginStatus {
-  state: 'ok' | 'not_logged_in' | 'expired' | 'no_subscription' | 'error';
-  message: string;
-  checkedAt: number;
-  source?: string;
-  userId?: string;
-  email?: string;
-  organization?: string;
-  plan?: string;
-  expiresAt?: number;
-  refreshed?: boolean;
-  windows: QuotaWindow[];
+  noteCodes?: string[];
 }
 
 export interface ConsoleSettings {
@@ -154,7 +149,6 @@ export interface ConsoleSettings {
   resolved: PathSettings;
   availability: Record<keyof PathSettings, boolean>;
   claudeProjectsAll?: string[];
-  claudeLogin?: ClaudeLoginStatus | null;
   accounts: ConsoleAccount[];
   dataDir: string;
   scan: {

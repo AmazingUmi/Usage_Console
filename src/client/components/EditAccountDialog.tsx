@@ -1,6 +1,7 @@
 import React, { useState } from 'react';
 import type { ConsoleSettings, ProviderQuota } from '../types';
 import { deleteAccount, updateAccount } from '../api';
+import { useI18n } from '../i18n';
 
 interface EditAccountDialogProps {
   quota: ProviderQuota | null;
@@ -9,6 +10,7 @@ interface EditAccountDialogProps {
 }
 
 export const EditAccountDialog: React.FC<EditAccountDialogProps> = ({ quota, onClose, onSaved }) => {
+  const { t } = useI18n();
   const [label, setLabel] = useState(quota?.displayName || '');
   const [notes, setNotes] = useState(quota?.notes || '');
   const [error, setError] = useState<string | null>(null);
@@ -47,24 +49,24 @@ export const EditAccountDialog: React.FC<EditAccountDialogProps> = ({ quota, onC
   return (
     <div className="modal-backdrop" role="presentation" onClick={onClose}>
       <div className="modal-card" role="dialog" aria-modal="true" aria-labelledby="edit-account-title" onClick={(event) => event.stopPropagation()}>
-        <h3 id="edit-account-title">编辑账户</h3>
+        <h3 id="edit-account-title">{t('edit.title')}</h3>
         <label className="field">
-          <span className="field-label">用户 ID</span>
+          <span className="field-label">{t('edit.userId')}</span>
           <input className="input" value={quota.userId || '—'} readOnly />
         </label>
         <label className="field">
-          <span className="field-label">显示名称</span>
+          <span className="field-label">{t('edit.name')}</span>
           <input className="input" value={label} onChange={(event) => setLabel(event.target.value)} />
         </label>
         <label className="field">
-          <span className="field-label">备注</span>
+          <span className="field-label">{t('edit.notes')}</span>
           <textarea className="input" value={notes} onChange={(event) => setNotes(event.target.value)} rows={3} />
         </label>
         {error && <p className="callout" data-tone="danger" role="alert">{error}</p>}
         <div className="modal-actions">
-          <button type="button" className="btn" onClick={remove} disabled={busy}>移除卡片</button>
-          <button type="button" className="btn" onClick={onClose}>取消</button>
-          <button type="button" className="btn btn-primary" onClick={save} disabled={busy}>保存</button>
+          <button type="button" className="btn" onClick={remove} disabled={busy}>{t('edit.remove')}</button>
+          <button type="button" className="btn" onClick={onClose}>{t('edit.cancel')}</button>
+          <button type="button" className="btn btn-primary" onClick={save} disabled={busy}>{t('edit.save')}</button>
         </div>
       </div>
     </div>

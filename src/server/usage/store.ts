@@ -317,10 +317,17 @@ class UsageStore {
       for (const record of scanned.records) {
         if (addRecord(record)) status.records += 1;
       }
-      const notes = ['按消息去重，含主会话与子代理'];
-      if (scanned.truncated) notes.push(`仅保留最近 ${scanned.filesScanned} 个文件`);
-      if (scanned.errors > 0) notes.push(`${scanned.errors} 个文件读取失败`);
-      status.note = notes.join('；');
+      const notes = ['Deduplicated per message, including sub-agents'];
+      status.noteCodes = ['dedupe'];
+      if (scanned.truncated) {
+        notes.push(`Only the latest ${scanned.filesScanned} files kept`);
+        status.noteCodes.push(`truncated:${scanned.filesScanned}`);
+      }
+      if (scanned.errors > 0) {
+        notes.push(`${scanned.errors} files could not be read`);
+        status.noteCodes.push(`errors:${scanned.errors}`);
+      }
+      status.note = notes.join('; ');
       this.noteSource(status);
     } catch (err) {
       status.note = (err as Error).message;
