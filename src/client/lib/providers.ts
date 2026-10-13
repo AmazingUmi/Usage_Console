@@ -25,51 +25,62 @@ function matchesType(quota: ProviderQuota, type: AccountType): boolean {
   return TYPE_MATCH[type].test(quota.provider) || TYPE_MATCH[type].test(quota.displayName);
 }
 
+function stripEmail(name: string): string {
+  return name.replace(/\s*\([^)]*@[^)]*\)\s*$/, '');
+}
+
 /** Only accounts explicitly added in settings get a quota card. */
 export function quotaCardsForAccounts(live: ProviderQuota[], accounts: ConsoleAccount[]): ProviderQuota[] {
   const used = new Set<ProviderQuota>();
   return accounts.map((account) => {
     const match = live.find((item) => !used.has(item) && item.accountId && item.accountId === account.userId)
-      || live.find((item) => !used.has(item) && matchesType(item, account.type));
+      || live.find((item) => !used.has(item) && !item.accountId && matchesType(item, account.type))
+      || live.find((item) => !used.has(item) && matchesType(item, account.type) && !accounts.some((other) => other.userId === item.accountId));
     const snapshot = account.subscription;
+    const base = {
+      userId: account.userId,
+      email: account.email,
+      notes: account.notes,
+      accountCardId: account.id,
+    };
     if (match) {
       used.add(match);
+      const liveWindows = match.windows?.length ? match.windows : undefined;
+      const stale = !liveWindows && snapshot?.windows?.length && match.status !== 'ok';
       return {
         ...match,
-        displayName: account.label || match.displayName,
+        ...base,
+        displayName: account.label || stripEmail(match.displayName),
         plan: match.plan || snapshot?.plan,
-        windows: match.windows?.length ? match.windows : snapshot?.windows,
-        capturedAt: match.capturedAt || snapshot?.capturedAt || 0,
-        status: match.windows?.length || snapshot?.windows?.length ? 'ok' : match.status,
-        userId: account.userId,
-        notes: account.notes,
-        accountCardId: account.id,
+        windows: liveWindows || snapshot?.windows,
+        capturedAt: liveWindows ? match.capturedAt : snapshot?.capturedAt || match.capturedAt || 0,
+        status: stale ? 'warning' : match.status,
+        errorMessage: stale
+          ? `${match.errorMessage || '实时读取失败'}（下方为上次读数）`
+          : match.errorMessage,
       };
     }
     if (snapshot?.windows?.length) {
       return {
+        ...base,
         provider: TYPE_PROVIDER[account.type],
-        displayName: account.label || account.email || ACCOUNT_TYPE_LABEL[account.type],
+        displayName: account.label || ACCOUNT_TYPE_LABEL[account.type],
         plan: snapshot.plan || '订阅',
         capturedAt: snapshot.capturedAt,
-        status: 'ok',
+        status: 'warning',
+        errorMessage: '本机当前登录不是这个账户，显示的是上次读数。',
         windows: snapshot.windows,
-        userId: account.userId,
-        notes: account.notes,
-        accountCardId: account.id,
       };
     }
     return {
+      ...base,
       provider: TYPE_PROVIDER[account.type],
-      displayName: account.label || account.email || ACCOUNT_TYPE_LABEL[account.type],
+      displayName: account.label || ACCOUNT_TYPE_LABEL[account.type],
       capturedAt: 0,
       status: 'unconfigured',
       errorMessage: account.type === 'claude'
-        ? '已链接账户，但还没有订阅额度。请重新认证登录一次，使用 Claude 订阅账号，而不是 API Key。'
+        ? '本机 Claude Code 当前登录的不是这个账户，或尚未登录。运行 claude 并 /login 后点刷新。'
         : '已识别账户，但本机当前登录读不到该账户额度。',
-      userId: account.userId,
-      notes: account.notes,
-      accountCardId: account.id,
     };
   });
 }

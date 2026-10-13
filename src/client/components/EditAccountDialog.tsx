@@ -48,23 +48,23 @@ export const EditAccountDialog: React.FC<EditAccountDialogProps> = ({ quota, onC
     <div className="modal-backdrop" role="presentation" onClick={onClose}>
       <div className="modal-card" role="dialog" aria-modal="true" aria-labelledby="edit-account-title" onClick={(event) => event.stopPropagation()}>
         <h3 id="edit-account-title">编辑账户</h3>
-        <label className="path-field">
-          <span className="path-label">用户 ID</span>
-          <input className="settings-input" value={quota.userId || '—'} readOnly />
+        <label className="field">
+          <span className="field-label">用户 ID</span>
+          <input className="input" value={quota.userId || '—'} readOnly />
         </label>
-        <label className="path-field">
-          <span className="path-label">显示名称</span>
-          <input className="settings-input" value={label} onChange={(event) => setLabel(event.target.value)} />
+        <label className="field">
+          <span className="field-label">显示名称</span>
+          <input className="input" value={label} onChange={(event) => setLabel(event.target.value)} />
         </label>
-        <label className="path-field">
-          <span className="path-label">备注</span>
-          <textarea className="settings-input settings-notes" value={notes} onChange={(event) => setNotes(event.target.value)} rows={3} />
+        <label className="field">
+          <span className="field-label">备注</span>
+          <textarea className="input" value={notes} onChange={(event) => setNotes(event.target.value)} rows={3} />
         </label>
-        {error && <p className="notice" role="alert">{error}</p>}
+        {error && <p className="callout" data-tone="danger" role="alert">{error}</p>}
         <div className="modal-actions">
-          <button type="button" onClick={remove} disabled={busy}>移除卡片</button>
-          <button type="button" onClick={onClose}>取消</button>
-          <button type="button" className="button-primary" onClick={save} disabled={busy}>保存</button>
+          <button type="button" className="btn" onClick={remove} disabled={busy}>移除卡片</button>
+          <button type="button" className="btn" onClick={onClose}>取消</button>
+          <button type="button" className="btn btn-primary" onClick={save} disabled={busy}>保存</button>
         </div>
       </div>
     </div>

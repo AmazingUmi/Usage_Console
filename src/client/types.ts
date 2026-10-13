@@ -21,6 +21,7 @@ export interface ProviderQuota {
   groups?: QuotaGroup[];
   accountId?: string;
   userId?: string;
+  email?: string;
   notes?: string;
   accountCardId?: string;
 }
@@ -132,12 +133,28 @@ export interface ScanSourceStatus {
   note?: string;
 }
 
+export interface ClaudeLoginStatus {
+  state: 'ok' | 'not_logged_in' | 'expired' | 'no_subscription' | 'error';
+  message: string;
+  checkedAt: number;
+  source?: string;
+  userId?: string;
+  email?: string;
+  organization?: string;
+  plan?: string;
+  expiresAt?: number;
+  refreshed?: boolean;
+  windows: QuotaWindow[];
+}
+
 export interface ConsoleSettings {
   hideAgyClaude: boolean;
   paths: PathSettings;
   defaults: PathSettings;
   resolved: PathSettings;
   availability: Record<keyof PathSettings, boolean>;
+  claudeProjectsAll?: string[];
+  claudeLogin?: ClaudeLoginStatus | null;
   accounts: ConsoleAccount[];
   dataDir: string;
   scan: {

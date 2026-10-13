@@ -301,17 +301,17 @@ class UsageStore {
   }
 
   private async ingestClaudeSessions(addRecord: (rec: TokenUsageRecord) => boolean): Promise<void> {
-    const claudeDir = CONFIG.paths.claudeProjects;
+    const dirs = CONFIG.paths.claudeProjectsAll;
     const status: ScanSourceStatus = {
       id: 'claude',
       label: 'Claude 对话',
-      path: claudeDir,
+      path: dirs.join('，'),
       exists: false,
       filesScanned: 0,
       records: 0,
     };
     try {
-      const scanned = scanClaudeConversations(claudeDir);
+      const scanned = scanClaudeConversations(dirs);
       status.exists = scanned.exists;
       status.filesScanned = scanned.filesScanned;
       for (const record of scanned.records) {

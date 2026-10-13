@@ -1,10 +1,9 @@
-import { execFileSync } from 'node:child_process';
 import fs from 'node:fs';
 import path from 'node:path';
 import { CONFIG } from '../config.js';
 import type { AccountType } from '../settings.js';
 import type { ClaudeSubscription } from './claude-subscription.js';
-import { queryClaudeSubscription } from './claude-subscription.js';
+import { getClaudeLocalStatus } from './claude-local.js';
 
 export interface ScannedIdentity {
   type: AccountType;
@@ -53,60 +52,20 @@ function scanCodexFile(file: string, into: ScannedIdentity[]): void {
   });
 }
 
-export function claudeAccessTokenFromCredential(raw: string): string {
-  if (!raw) return '';
-  try {
-    const parsed = JSON.parse(raw) as Record<string, unknown>;
-    const entry = (parsed.claudeAiOauth || parsed['claude.ai_oauth']) as Record<string, unknown> | undefined;
-    return text(entry?.accessToken);
-  } catch {
-    return '';
-  }
-}
-
-export async function loadLocalClaudeIdentity(): Promise<ScannedIdentity | null> {
-  const accessToken = claudeAccessTokenFromCredential(claudeCredentialJson());
-  if (!accessToken) return null;
-  return claudeProfile(accessToken);
-}
-
-async function claudeProfile(accessToken: string): Promise<ScannedIdentity | null> {
-  try {
-    const identified = await queryClaudeSubscription(accessToken);
-    return { type: 'claude', source: 'scan', ...identified, subscription: identified.subscription || undefined };
-  } catch {
-    return null;
-  }
-}
-
-function claudeCredentialJson(): string {
-  if (process.platform === 'darwin') {
-    try {
-      return execFileSync('security', ['find-generic-password', '-s', 'Claude Code-credentials', '-w'], {
-        encoding: 'utf8',
-        timeout: 4000,
-      }).trim();
-    } catch {
-      // Fall through to the credentials file.
-    }
-  }
-  const file = path.join(CONFIG.paths.home, '.claude', '.credentials.json');
-  return fs.existsSync(file) ? fs.readFileSync(file, 'utf8') : '';
+export async function loadLocalClaudeIdentity(force = false): Promise<ScannedIdentity | null> {
+  const status = await getClaudeLocalStatus(force);
+  if (!status.userId) return null;
+  return {
+    type: 'claude',
+    source: 'scan',
+    userId: status.userId,
+    email: status.email,
+    subscription: status.subscription,
+  };
 }
 
 async function scanClaude(into: ScannedIdentity[]): Promise<void> {
-  const raw = claudeCredentialJson();
-  if (!raw) return;
-  let parsed: Record<string, unknown>;
-  try {
-    parsed = JSON.parse(raw) as Record<string, unknown>;
-  } catch {
-    return;
-  }
-  const entry = (parsed.claudeAiOauth || parsed['claude.ai_oauth']) as Record<string, unknown> | undefined;
-  const accessToken = text(entry?.accessToken);
-  if (!accessToken) return;
-  const identity = await claudeProfile(accessToken);
+  const identity = await loadLocalClaudeIdentity();
   if (identity) into.push(identity);
 }
 

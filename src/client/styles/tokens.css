@@ -1,109 +1,99 @@
 /*
- * Design tokens. Raw colours, radii, blur and shadows live here and nowhere else.
- *
- * Glass is built from three fill levels on top of one mesh-gradient canvas:
- *   --fill-1  cards and the header capsule   (most transparent, blurred)
- *   --fill-2  chips, selects, buttons, tabs  (sits on a card, no extra blur)
- *   --fill-3  popovers and pickers           (most opaque, blurred)
+ * Design tokens. Raw colours, radii and shadows live here and nowhere else.
+ * Flat surfaces: page background → card surface → inset surface, separated by 1px borders.
  */
 :root {
-  color-scheme: light dark;
-  --font: -apple-system, BlinkMacSystemFont, "SF Pro Text", "PingFang SC", "Microsoft YaHei", "Noto Sans CJK SC", sans-serif;
-  --mono: ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+  color-scheme: light;
+  --font: "Inter", -apple-system, BlinkMacSystemFont, "Segoe UI", "PingFang SC", "Microsoft YaHei", "Noto Sans CJK SC", sans-serif;
+  --mono: ui-monospace, "SF Mono", "JetBrains Mono", Menlo, Consolas, monospace;
 
-  /* text */
-  --text: #141a26;
-  --muted: #5a6578;
+  --bg: #f4f5f7;
+  --surface: #ffffff;
+  --surface-2: #f8f9fb;
+  --hover: #f1f3f6;
+  --border: #e5e7eb;
+  --border-strong: #d1d5db;
+  --track: #eceef2;
 
-  /* canvas */
-  --bg: #edf0f6;
-  --mesh-a: #cfe3f2;
-  --mesh-b: #dcd6f4;
-  --mesh-c: #c8ece6;
+  --text: #111827;
+  --text-2: #374151;
+  --muted: #6b7280;
+  --faint: #9ca3af;
 
-  /* brand */
-  --accent: #0b8497;
-  --accent-hi: #2bb6c7;
-  --accent-hover: #08707f;
-  --accent-contrast: #fff;
-  --accent-soft: rgb(11 132 151 / 12%);
+  --accent: #2563eb;
+  --accent-hover: #1d4ed8;
+  --accent-soft: #eff4ff;
+  --accent-contrast: #ffffff;
 
-  /* providers: OpenAI graphite · Claude terracotta · Grok ink · Antigravity azure */
-  --gray: #586272;
-  --chart-secondary: #cf6a43;
-  --grok: #252a33;
-  --agy: #2f7df4;
+  /* status — reserved, always paired with a label */
+  --good: #16a34a;
+  --good-soft: #ecfdf3;
+  --warning: #d97706;
+  --warning-soft: #fff7e6;
+  --danger: #dc2626;
+  --danger-soft: #fef2f2;
 
-  /* quota levels */
-  --warning: #c2700a;
-  --danger: #d92d3a;
+  /* providers */
+  --p-codex: #0f9f7a;
+  --p-claude: #d97757;
+  --p-grok: #1f2937;
+  --p-agy: #4285f4;
 
-  /* glass */
-  --fill-1: rgb(255 255 255 / 52%);
-  --fill-2: rgb(255 255 255 / 74%);
-  --fill-3: rgb(255 255 255 / 90%);
-  --fill-inset: rgb(120 140 170 / 13%);
-  --fill-hover: rgb(120 140 170 / 16%);
-  --hairline: rgb(255 255 255 / 80%);
-  --stroke: rgb(255 255 255 / 62%);
-  --edge: rgb(90 110 150 / 22%);
-  --track: #dbe2ec;
-  --solid: #fff;
-  --solid-2: #f1f4f9;
-  --shadow-card: 0 8px 30px rgb(40 60 110 / 10%), 0 1px 2px rgb(40 60 110 / 8%);
-  --shadow-pop: 0 18px 48px rgb(20 30 60 / 22%);
-  --shadow-thumb: 0 1px 4px rgb(20 40 90 / 16%);
-  --blur: blur(24px) saturate(180%);
-  --blur-pop: blur(32px) saturate(180%);
+  /* chart series (validated categorical order: blue, orange, aqua) */
+  --series-1: #2a78d6;
+  --series-2: #eb6834;
+  --series-3: #1baf7a;
 
-  /* shape & motion */
-  --r-card: 26px;
-  --r-inner: 18px;
+  --shadow-sm: 0 1px 2px rgb(16 24 40 / 5%);
+  --shadow-pop: 0 12px 32px rgb(16 24 40 / 14%), 0 2px 6px rgb(16 24 40 / 6%);
+
+  --r-card: 14px;
+  --r-ctl: 8px;
   --r-pill: 999px;
-  --ease: cubic-bezier(.32, .72, 0, 1);
-  --gutter: 32px;
-  --provider-columns: 4;
+  --ease: cubic-bezier(.2, .7, .2, 1);
+  --gutter: 28px;
 }
 
 @media (prefers-color-scheme: dark) {
   :root {
-    --text: #e9eef6;
-    --muted: #9ba8bc;
-    --bg: #0a0f16;
-    --mesh-a: #12394a;
-    --mesh-b: #2c2656;
-    --mesh-c: #0e3d3b;
+    color-scheme: dark;
+    --bg: #0b0d11;
+    --surface: #13161c;
+    --surface-2: #181c23;
+    --hover: #1d222a;
+    --border: #252a33;
+    --border-strong: #343b46;
+    --track: #232832;
 
-    --accent: #4cc9d8;
-    --accent-hi: #86e3ec;
-    --accent-hover: #86e3ec;
-    --accent-contrast: #04252b;
-    --accent-soft: rgb(76 201 216 / 16%);
+    --text: #e8ebf0;
+    --text-2: #c9ced8;
+    --muted: #9099a8;
+    --faint: #6b7483;
 
-    --gray: #bcc4d1;
-    --chart-secondary: #f0a07a;
-    --grok: #e8ebf0;
-    --agy: #6aa6ff;
-    --warning: #f5b84a;
-    --danger: #f87171;
+    --accent: #5b8def;
+    --accent-hover: #7aa4f3;
+    --accent-soft: rgb(91 141 239 / 14%);
+    --accent-contrast: #0b0d11;
 
-    --fill-1: rgb(30 38 54 / 55%);
-    --fill-2: rgb(255 255 255 / 9%);
-    --fill-3: rgb(28 36 50 / 92%);
-    --fill-inset: rgb(255 255 255 / 7%);
-    --fill-hover: rgb(255 255 255 / 11%);
-    --hairline: rgb(255 255 255 / 14%);
-    --stroke: rgb(255 255 255 / 10%);
-    --edge: rgb(255 255 255 / 12%);
-    --track: #2b3747;
-    --solid: #161e28;
-    --solid-2: #1b2531;
-    --shadow-card: 0 8px 32px rgb(0 0 0 / 35%);
-    --shadow-pop: 0 18px 48px rgb(0 0 0 / 50%);
-    --shadow-thumb: 0 1px 4px rgb(0 0 0 / 40%);
+    --good: #3ccb7f;
+    --good-soft: rgb(60 203 127 / 12%);
+    --warning: #f0a93b;
+    --warning-soft: rgb(240 169 59 / 12%);
+    --danger: #f26b6b;
+    --danger-soft: rgb(242 107 107 / 12%);
+
+    --p-codex: #34c79e;
+    --p-claude: #e8916f;
+    --p-grok: #d1d5db;
+    --p-agy: #6ea4ff;
+
+    --series-1: #3987e5;
+    --series-2: #d95926;
+    --series-3: #199e70;
+
+    --shadow-sm: 0 1px 2px rgb(0 0 0 / 30%);
+    --shadow-pop: 0 16px 40px rgb(0 0 0 / 55%);
   }
 }
 
-@media (max-width: 1200px) { :root { --provider-columns: 2; } }
-@media (max-width: 850px)  { :root { --gutter: 20px; } }
-@media (max-width: 680px)  { :root { --provider-columns: 1; --gutter: 14px; } }
+@media (max-width: 760px) { :root { --gutter: 16px; } }

@@ -41,6 +41,8 @@ export interface RuntimePaths {
   piUsage: string;
   gemini: string;
   claudeProjects: string;
+  /** Every Claude projects dir to scan: the configured one, or all default locations that exist. */
+  claudeProjectsAll: string[];
   grokSessions: string;
 }
 
@@ -153,6 +155,24 @@ function normalizeClaudeDir(dir: string): string {
   return dir;
 }
 
+/**
+ * Claude Code writes transcripts to <config>/projects. The config dir is $CLAUDE_CONFIG_DIR (comma separated),
+ * ~/.claude, or ~/.config/claude on newer Linux installs — scan every one that exists.
+ */
+function defaultClaudeProjectDirs(): string[] {
+  const home = os.homedir();
+  const dirs = (process.env.CLAUDE_CONFIG_DIR || '')
+    .split(',')
+    .map((item) => item.trim())
+    .filter(Boolean)
+    .map((dir) => normalizeClaudeDir(expandUserPath(dir)));
+  dirs.push(path.join(home, '.claude', 'projects'));
+  dirs.push(path.join(process.env.XDG_CONFIG_HOME || path.join(home, '.config'), 'claude', 'projects'));
+  const uniqueDirs = Array.from(new Set(dirs.map((dir) => path.resolve(dir))));
+  const existing = uniqueDirs.filter((dir) => fs.existsSync(dir));
+  return existing.length > 0 ? existing : [uniqueDirs[uniqueDirs.length - 2]];
+}
+
 function computeRuntimePaths(): RuntimePaths {
   const settings = loadSettings();
   const defaults = defaultPaths();
@@ -160,6 +180,9 @@ function computeRuntimePaths(): RuntimePaths {
   const codexDir = pick('codexDir');
   const piAgentDir = pick('piAgentDir');
   const claudeProjectsDir = normalizeClaudeDir(pick('claudeProjectsDir'));
+  const claudeProjectsAll = settings.paths.claudeProjectsDir
+    ? [claudeProjectsDir]
+    : defaultClaudeProjectDirs();
   const grokSessionsDir = pick('grokSessionsDir');
   return {
     home: os.homedir(),
@@ -172,7 +195,8 @@ function computeRuntimePaths(): RuntimePaths {
     piQuotaReadings: path.join(piAgentDir, 'pi-quota-monitor', 'quota-readings'),
     piUsage: path.join(piAgentDir, 'pi-quota-monitor', 'usage'),
     gemini: path.join(os.homedir(), '.gemini'),
-    claudeProjects: claudeProjectsDir,
+    claudeProjects: claudeProjectsAll.find((dir) => fs.existsSync(dir)) || claudeProjectsDir,
+    claudeProjectsAll,
     grokSessions: grokSessionsDir,
   };
 }
@@ -260,10 +284,11 @@ export function settingsView(scan: ScanReport) {
     paths: display,
     defaults,
     resolved,
+    claudeProjectsAll: runtime.claudeProjectsAll,
     availability: {
       codexDir: pathExists(resolved.codexDir),
       piAgentDir: pathExists(resolved.piAgentDir),
-      claudeProjectsDir: pathExists(resolved.claudeProjectsDir),
+      claudeProjectsDir: runtime.claudeProjectsAll.some(pathExists),
       grokSessionsDir: pathExists(resolved.grokSessionsDir),
     },
     accounts: stored.accounts,

@@ -72,15 +72,15 @@ export const AddAccountDialog: React.FC<AddAccountDialogProps> = ({ open, onClos
     <div className="modal-backdrop" role="presentation" onClick={onClose}>
       <div className="modal-card" role="dialog" aria-modal="true" aria-labelledby="add-account-title" onClick={(event) => event.stopPropagation()}>
         <h3 id="add-account-title">添加账户</h3>
-        <p className="hint">Claude 请使用订阅账号登录。令牌只在内存里读取 5 小时和每周额度，不会写入本项目，也不会覆盖 Claude Code 已有登录。</p>
-        <label className="path-field">
-          <span className="path-label">类型</span>
-          <select value={type} onChange={(event) => setType(event.target.value as AccountType)}>
+        <p className="hint">本机已登录 Claude Code 时无需在这里添加，刷新后会自动识别。这里用于添加其他订阅账号：令牌只在内存里读取一次额度，不会写入本项目，也不会覆盖 Claude Code 的登录。</p>
+        <label className="field">
+          <span className="field-label">类型</span>
+          <select className="input" value={type} onChange={(event) => setType(event.target.value as AccountType)}>
             {TYPES.map((item) => <option key={item} value={item}>{ACCOUNT_TYPE_LABEL[item]}</option>)}
           </select>
         </label>
         {(type === 'gpt' || type === 'claude') && !gpt && !claude && (
-          <button type="button" className="button-primary" onClick={beginLogin} disabled={busy}>
+          <button type="button" className="btn btn-primary" onClick={beginLogin} disabled={busy}>
             {busy ? '正在准备…' : '认证登录'}
           </button>
         )}
@@ -89,7 +89,8 @@ export const AddAccountDialog: React.FC<AddAccountDialogProps> = ({ open, onClos
         )}
         {gpt && (
           <div className="login-box">
-            <p>在浏览器打开验证页，输入代码 <strong>{gpt.userCode}</strong></p>
+            <p>在浏览器打开验证页，输入代码</p>
+            <p className="user-code">{gpt.userCode}</p>
             <a href={gpt.verificationUri} target="_blank" rel="noreferrer">{gpt.verificationUri}</a>
             <p className="hint">等待授权完成，成功后只保存用户 ID。</p>
           </div>
@@ -97,13 +98,13 @@ export const AddAccountDialog: React.FC<AddAccountDialogProps> = ({ open, onClos
         {claude && (
           <div className="login-box">
             <a href={claude.authorizeUrl} target="_blank" rel="noreferrer">打开 Claude 登录</a>
-            <input className="settings-input" value={code} placeholder="粘贴回调 code" onChange={(event) => setCode(event.target.value)} />
-            <button type="button" className="button-primary" onClick={finishClaude} disabled={busy || !code.trim()}>确认身份</button>
+            <input className="input" value={code} placeholder="粘贴回调 code" onChange={(event) => setCode(event.target.value)} />
+            <button type="button" className="btn btn-primary" onClick={finishClaude} disabled={busy || !code.trim()}>确认身份</button>
           </div>
         )}
-        {error && <p className="notice" role="alert">{error}</p>}
+        {error && <p className="callout" data-tone="danger" role="alert">{error}</p>}
         <div className="modal-actions">
-          <button type="button" onClick={onClose}>关闭</button>
+          <button type="button" className="btn" onClick={onClose}>关闭</button>
         </div>
       </div>
     </div>

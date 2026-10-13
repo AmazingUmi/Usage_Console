@@ -189,12 +189,13 @@ function parseFile(filePath: string): ParsedClaudeMessage[] {
   return result;
 }
 
-export function scanClaudeConversations(root: string): ClaudeScanResult {
-  if (!root || !fs.existsSync(root)) {
+export function scanClaudeConversations(roots: string | string[]): ClaudeScanResult {
+  const existing = (Array.isArray(roots) ? roots : [roots]).filter((root) => root && fs.existsSync(root));
+  if (existing.length === 0) {
     return { records: [], filesScanned: 0, exists: false, truncated: false, errors: 0 };
   }
 
-  let files = collectClaudeJsonlFiles(root);
+  let files = Array.from(new Set(existing.flatMap((root) => collectClaudeJsonlFiles(root))));
   let truncated = false;
   if (files.length > MAX_FILES) {
     truncated = true;

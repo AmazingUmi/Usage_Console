@@ -1,4 +1,5 @@
 import type {
+  ClaudeLoginStatus,
   ConsoleAccount,
   ConsoleSettings,
   PathSettings,
@@ -18,10 +19,8 @@ export function trendDaysFor(range: UsageRange): number {
     case 'today':
     case '7d':
       return 7;
-    case '30d':
-      return 30;
     default:
-      return 14;
+      return 30;
   }
 }
 
@@ -167,4 +166,9 @@ export async function fetchRecentRecords(limit = 30, range: UsageRange = 'all'):
 export async function syncUsage(): Promise<{ count: number }> {
   const res = await fetch(`${API_BASE}/usage/sync`, { method: 'POST' });
   return readJson(res, 'Failed to sync usage');
+}
+
+export async function fetchClaudeStatus(force = false): Promise<ClaudeLoginStatus> {
+  const res = await fetch(`${API_BASE}/claude/status${force ? '?force=true' : ''}`);
+  return readJson(res, '读取 Claude 登录状态失败');
 }

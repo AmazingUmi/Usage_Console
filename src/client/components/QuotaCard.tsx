@@ -1,6 +1,7 @@
 import React from 'react';
 import type { ProviderQuota, QuotaWindow } from '../types';
 import { collectQuotaWindows } from '../lib/quota';
+import { Icon } from './Icon';
 
 interface QuotaCardProps {
   quota: ProviderQuota;
@@ -12,172 +13,104 @@ function formatCountdown(resetAt?: number): string {
   if (!resetAt) return '';
   const diff = resetAt - Date.now();
   if (diff <= 0) return '即将重置';
-
-  const hours = Math.floor(diff / (1000 * 60 * 60));
-  const minutes = Math.floor((diff % (1000 * 60 * 60)) / (1000 * 60));
+  const minutes = Math.floor(diff / 60000);
+  const hours = Math.floor(minutes / 60);
   const days = Math.floor(hours / 24);
-
-  if (days > 0) {
-    const remainHours = hours % 24;
-    return `${days}天${remainHours}小时`;
-  }
-  if (hours > 0) {
-    return `${hours}小时${minutes}分`;
-  }
-  return `${minutes}分钟`;
+  if (days > 0) return `${days} 天 ${hours % 24} 小时后重置`;
+  if (hours > 0) return `${hours} 小时 ${minutes % 60} 分后重置`;
+  return `${Math.max(1, minutes)} 分钟后重置`;
 }
 
-function getProviderVisuals(provider: string) {
+function providerVisuals(provider: string) {
   const p = provider.toLowerCase();
-  if (p.includes('codex') || p.includes('openai')) {
-    return { id: 'codex-card', pc: 'var(--gray)', icon: 'O' };
-  }
-  if (p.includes('claude') || p.includes('anthropic')) {
-    return { id: 'claude-card', pc: 'var(--chart-secondary)', icon: 'C' };
-  }
-  if (p.includes('grok') || p.includes('xai')) {
-    return { id: 'grok-card', pc: 'var(--grok)', icon: 'G' };
-  }
-  if (p.includes('antigravity') || p.includes('gemini') || p.includes('google')) {
-    return { id: 'agy-card', pc: 'var(--agy)', icon: 'A' };
-  }
-  return { id: `${provider}-card`, pc: 'var(--accent)', icon: '⚡' };
+  if (p.includes('codex') || p.includes('openai')) return { pc: 'var(--p-codex)', icon: 'O' };
+  if (p.includes('claude') || p.includes('anthropic')) return { pc: 'var(--p-claude)', icon: 'C' };
+  if (p.includes('grok') || p.includes('xai')) return { pc: 'var(--p-grok)', icon: 'G' };
+  if (p.includes('antigravity') || p.includes('gemini') || p.includes('google')) return { pc: 'var(--p-agy)', icon: 'A' };
+  return { pc: 'var(--accent)', icon: '•' };
 }
 
 function niceWindowLabel(label: string): string {
-  if (/5\s*hour/i.test(label) || label === 'primary') return '5 小时';
+  if (/5\s*-?\s*hour/i.test(label) || label === 'primary') return '5 小时';
   if (/week/i.test(label) || label === 'secondary') return '每周';
   return label.replace(/ Limit Remaining$/i, '').replace(/ limit/i, '');
 }
 
-function statusMeta(status: ProviderQuota['status']): { label: string; color: string } {
-  switch (status) {
-    case 'ok':
-      return { label: '已同步', color: 'var(--accent)' };
-    case 'warning':
-      return { label: '异常', color: 'var(--warning)' };
-    case 'error':
-      return { label: '失败', color: 'var(--danger)' };
-    default:
-      return { label: '未配置', color: 'var(--muted)' };
-  }
-}
+const STATUS: Record<ProviderQuota['status'], { label: string; tone: string }> = {
+  ok: { label: '正常', tone: 'good' },
+  warning: { label: '注意', tone: 'warning' },
+  error: { label: '异常', tone: 'danger' },
+  unconfigured: { label: '未连接', tone: 'muted' },
+};
 
-const BatteryRow: React.FC<{ window: QuotaWindow; pc: string }> = ({ window: win, pc }) => {
+const Meter: React.FC<{ window: QuotaWindow }> = ({ window: win }) => {
   const known = Number.isFinite(win.remainingPercent);
   const percent = known ? Math.min(100, Math.max(0, win.remainingPercent)) : 0;
-  const countdown = formatCountdown(win.resetAt);
-
-  let level = 'normal';
-  if (known && percent <= 20) level = 'low';
-  else if (known && percent <= 50) level = 'warning';
-
+  const level = !known ? 'unknown' : percent <= 20 ? 'low' : percent <= 50 ? 'warning' : 'normal';
+  const label = niceWindowLabel(win.label);
   return (
-    <div
-      className="gauge-row"
-      data-level={level}
-      data-known={known ? 'true' : 'false'}
-      style={{
-        '--v': percent,
-        '--fill': level === 'low' ? 'var(--danger)' : level === 'warning' ? 'var(--warning)' : pc,
-      } as React.CSSProperties}
-    >
-      <div className="gauge-head">
-        <span>{niceWindowLabel(win.label)}</span>
+    <div className="meter" data-level={level}>
+      <div className="meter-head">
+        <span className="meter-label">{label}</span>
+        <span className="meter-value">{known ? Math.round(percent) : '—'}{known && <small>% 剩余</small>}</span>
       </div>
-
-      <div className="battery-stage">
-        <div className="battery" role="img" aria-label={`${win.label}: ${known ? `${percent.toFixed(0)}%` : '未知'}`}>
-          <i className="battery-fill" style={{ height: `max(${percent}%, 6px)` }}></i>
-        </div>
+      <div
+        className="meter-track"
+        role="meter"
+        aria-label={`${label} 剩余`}
+        aria-valuemin={0}
+        aria-valuemax={100}
+        aria-valuenow={known ? Math.round(percent) : undefined}
+      >
+        <span className="meter-fill" style={{ width: `${percent}%` }} />
       </div>
-
-      <div className="gauge-val">
-        {known ? percent.toFixed(0) : '—'}
-        {known && <small>%</small>}
+      <div className="meter-foot">
+        <span title={win.resetAt ? new Date(win.resetAt).toLocaleString() : undefined}>
+          {formatCountdown(win.resetAt) || '周期重置'}
+        </span>
       </div>
-
-      {countdown ? (
-        <div className="gauge-reset" title={`重置时间: ${new Date(win.resetAt!).toLocaleString()}`}>
-          <svg className="gauge-reset-icon" viewBox="0 0 16 16" width="12" height="12" aria-hidden="true">
-            <path d="M13 8a5 5 0 1 1-1.6-3.7"></path>
-            <path d="M12.6 2v2.6H10"></path>
-          </svg>
-          <small className="subtle">{countdown}</small>
-        </div>
-      ) : (
-        <div className="gauge-reset">
-          <small className="subtle">周期重置</small>
-        </div>
-      )}
     </div>
   );
 };
 
 export const QuotaCard: React.FC<QuotaCardProps> = ({ quota, includeAgyClaude = false, onEdit }) => {
-  const visuals = getProviderVisuals(quota.provider);
-  const status = statusMeta(quota.status);
+  const visuals = providerVisuals(quota.provider);
+  const status = STATUS[quota.status] || STATUS.unconfigured;
   const { windows, groupLabel, hiddenClaude } = collectQuotaWindows(quota, includeAgyClaude);
-  const capturedLabel = quota.capturedAt
-    ? new Date(quota.capturedAt).toLocaleTimeString()
-    : '等待配置';
+  const subtitle = [quota.email, quota.plan, groupLabel, hiddenClaude ? '已隐藏 Claude 分组' : '']
+    .filter(Boolean)
+    .join(' · ');
 
   return (
-    <article
-      id={visuals.id}
-      className={`provider-card panel${quota.status === 'unconfigured' ? ' is-empty' : ''}`}
-      style={{ '--pc': visuals.pc } as React.CSSProperties}
-    >
+    <article className="panel provider-card" style={{ '--pc': visuals.pc } as React.CSSProperties}>
       <header className="provider-heading">
-        <span className="provider-icon" aria-hidden="true">
-          {visuals.icon}
-        </span>
-        <div style={{ flex: 1, minWidth: 0 }}>
-          <h3>{quota.displayName}</h3>
-          <p className="hint">
-            {quota.plan || (quota.status === 'unconfigured' ? '未检测到凭据' : '官方额度')}
-            {groupLabel ? ` · ${groupLabel}` : ''}
-            {hiddenClaude ? ' · 已隐藏 Claude' : ''}
-          </p>
+        <span className="provider-icon" aria-hidden="true">{visuals.icon}</span>
+        <div className="provider-title">
+          <h3 title={quota.displayName}>{quota.displayName}</h3>
+          <p title={subtitle}>{subtitle || '官方额度'}</p>
         </div>
-        <span className="provider-tag" style={{ color: status.color, borderColor: 'currentColor' }}>
-          {status.label}
-        </span>
-        <details className="info-help provider-help">
-          <summary aria-label={`${quota.displayName} 额度说明`}>?</summary>
-          <div className="help-content">
-            <strong>{quota.displayName}</strong>
-            <p>订阅类型: {quota.plan || '未配置'}</p>
-            <p>读数时间: {quota.capturedAt ? new Date(quota.capturedAt).toLocaleString() : '—'}</p>
-            <p>{quota.errorMessage || '通过官方 API 探针或本地缓存提取滚动与周期限额。Antigravity 的 Claude 分组可在设置中隐藏，不影响用量统计。'}</p>
-          </div>
-        </details>
+        <span className="badge" data-tone={status.tone}>{status.label}</span>
       </header>
 
-      <div className="quota-groups">
-        <section className="quota-group">
-          <div className={`gauge gauge-count-${Math.min(windows.length, 4)}`}>
-            {windows.map((win, idx) => (
-              <BatteryRow key={`${win.label}-${idx}`} window={win} pc={visuals.pc} />
-            ))}
-            {windows.length === 0 && (
-              <p className="hint quota-empty-note">
-                {quota.status === 'unconfigured' ? '暂未接入该平台额度' : '暂无配额窗口数据'}
-              </p>
-            )}
+      <div className="quota-body">
+        {quota.errorMessage && (
+          <div className="callout" data-tone={quota.status === 'error' ? 'danger' : quota.status === 'unconfigured' ? 'info' : undefined}>
+            <Icon name={quota.status === 'unconfigured' ? 'info' : 'alert'} size={15} />
+            <span>{quota.errorMessage}</span>
           </div>
-        </section>
+        )}
+        {windows.map((win, idx) => <Meter key={`${win.label}-${idx}`} window={win} />)}
+        {windows.length === 0 && !quota.errorMessage && <p className="hint">暂无额度窗口数据</p>}
       </div>
 
-      <div className="provider-foot">
-        <span>{capturedLabel}</span>
-        <span>
-          {onEdit && quota.accountCardId && (
+      <footer className="provider-foot">
+        <span>{quota.capturedAt ? `读数 ${new Date(quota.capturedAt).toLocaleTimeString()}` : '尚无读数'}</span>
+        {onEdit && quota.accountCardId && (
+          <span className="actions">
             <button type="button" className="text-link" onClick={() => onEdit(quota)}>编辑</button>
-          )}
-          {quota.status === 'ok' ? '官方读数' : quota.status === 'unconfigured' ? '未检测到' : '本地读数'}
-        </span>
-      </div>
+          </span>
+        )}
+      </footer>
     </article>
   );
 };

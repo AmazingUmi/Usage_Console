@@ -28,6 +28,14 @@
   - 可配置 Codex、Pi、Claude 对话和 Grok 的本地扫描路径。
   - 扫描 Claude Code 本地对话 JSONL（含子代理），并按消息去重。
 
+### Claude Code 本机登录检测
+
+- 凭据来源（按令牌到期时间取最新的一份）：macOS 钥匙串 `Claude Code-credentials`、`$CLAUDE_CONFIG_DIR/.credentials.json`、`~/.claude/.credentials.json`、`~/.config/claude/.credentials.json`。
+- 访问令牌过期时，会用刷新令牌自动续期，并把新令牌写回原处（与 Claude Code 自身行为一致，避免 Claude Code 被登出）。
+- 身份优先读取 `/api/oauth/profile`，失败时回退到 `~/.claude.json` 的 `oauthAccount`；检测到登录后会自动添加 Claude 账户卡。
+- 读取失败时额度卡和「设置 → 本机 Claude Code 登录」会显示具体原因（未登录、已过期、无订阅额度、限流等）。
+- 对话用量默认同时扫描 `~/.claude/projects`、`~/.config/claude/projects` 和 `$CLAUDE_CONFIG_DIR/projects`。
+
 ---
 
 ## 快速开始

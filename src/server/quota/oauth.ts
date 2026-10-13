@@ -4,7 +4,7 @@ import path from 'node:path';
 import { CONFIG } from '../config.js';
 import type { ProviderQuota, QuotaState, QuotaWindow } from './types.js';
 import { getLatestQuotaState } from './scanner.js';
-import { loadLocalClaudeIdentity } from '../identity/scan.js';
+import { getClaudeLocalStatus } from '../identity/claude-local.js';
 import { upsertAccounts } from '../data/library.js';
 
 interface RawCodexResponse {
@@ -272,21 +272,30 @@ export async function queryAllLiveQuotas(forceRefresh = false): Promise<QuotaSta
   await Promise.allSettled(tasks);
 
   try {
-    const claude = await loadLocalClaudeIdentity();
-    if (claude?.subscription) {
-      upsertAccounts([claude]);
+    const claude = await getClaudeLocalStatus(forceRefresh);
+    if (claude.userId) {
+      upsertAccounts([{
+        type: 'claude',
+        userId: claude.userId,
+        email: claude.email,
+        source: 'scan',
+        subscription: claude.subscription,
+      }]);
+    }
+    if (claude.state !== 'not_logged_in' || claude.userId) {
       providers.claude = {
         provider: 'claude',
         displayName: claude.email ? `Claude (${claude.email})` : 'Claude',
-        plan: claude.subscription.plan || '订阅',
-        capturedAt: claude.subscription.capturedAt,
-        status: 'ok',
-        windows: claude.subscription.windows,
+        plan: claude.subscription?.plan || claude.plan || '订阅',
+        capturedAt: claude.subscription?.capturedAt || claude.checkedAt,
+        status: claude.state === 'ok' ? 'ok' : claude.state === 'no_subscription' ? 'warning' : 'error',
+        errorMessage: claude.state === 'ok' ? undefined : claude.message,
+        windows: claude.subscription?.windows,
         accountId: claude.userId,
       };
     }
-  } catch {
-    // Missing local Claude credentials should not fail the other quota reads.
+  } catch (err) {
+    console.warn('[Quota] Claude local login check failed:', (err as Error).message);
   }
 
   try {

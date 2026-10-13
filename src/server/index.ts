@@ -10,6 +10,8 @@ import { usageStore } from './usage/store.js';
 import type { UsageRange } from './usage/types.js';
 import { calibrateData } from './data/calibrate.js';
 import { copyDataIfMissing, loadAccounts, removeAccount, updateAccount, upsertAccounts } from './data/library.js';
+import { getClaudeLocalStatus, lastClaudeLocalStatus } from './identity/claude-local.js';
+import type { ClaudeLocalStatus } from './identity/claude-local.js';
 import { finishClaudeLogin, pollCodexLogin, startClaudeLogin, startCodexLogin } from './identity/login.js';
 
 const __filename = fileURLToPath(import.meta.url);
@@ -178,9 +180,28 @@ app.get('/api/usage/records', async (req, res) => {
   }
 });
 
-function publicSettings() {
-  return { ...settingsView(usageStore.getScanReport()), accounts: loadAccounts(), dataDir: resolveDataDir() };
+function publicClaudeStatus(status: ClaudeLocalStatus | null) {
+  if (!status) return null;
+  const { subscription, ...rest } = status;
+  return { ...rest, windows: subscription?.windows ?? [] };
 }
+
+function publicSettings() {
+  return {
+    ...settingsView(usageStore.getScanReport()),
+    accounts: loadAccounts(),
+    dataDir: resolveDataDir(),
+    claudeLogin: publicClaudeStatus(lastClaudeLocalStatus()),
+  };
+}
+
+app.get('/api/claude/status', async (req, res) => {
+  try {
+    res.json(publicClaudeStatus(await getClaudeLocalStatus(req.query.force === 'true')));
+  } catch (err) {
+    res.status(500).json({ error: (err as Error).message });
+  }
+});
 
 app.post('/api/usage/sync', async (_req, res) => {
   try {
