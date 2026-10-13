@@ -1,115 +1,91 @@
-@tailwind base;
-@tailwind components;
-@tailwind utilities;
+@import "./reference-style.css";
 
-@layer base {
+/* Additional layout & responsiveness overrides to match http://127.0.0.1:7777 */
+:root {
+  --provider-columns: 4;
+}
+
+@media (max-width: 1200px) {
   :root {
-    --bg-page: #0d131d;
-    --text-primary: #f1f5f9;
-    --text-muted: #94a3b8;
-    --glass-surface: rgba(26, 36, 52, 0.65);
-    --glass-highlight: rgba(255, 255, 255, 0.08);
-    --glass-border: rgba(255, 255, 255, 0.1);
-    --glass-shadow: 0 10px 30px -10px rgba(0, 0, 0, 0.4);
-    --glass-blur: blur(20px) saturate(180%);
-  }
-
-  body {
-    background-color: var(--bg-page);
-    background-image: 
-      radial-gradient(at 15% 10%, rgba(59, 130, 246, 0.08) 0px, transparent 50%),
-      radial-gradient(at 85% 85%, rgba(16, 185, 129, 0.05) 0px, transparent 50%);
-    background-attachment: fixed;
-    color: var(--text-primary);
-    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", "PingFang SC", "Microsoft YaHei", sans-serif;
-    -webkit-font-smoothing: antialiased;
-    margin: 0;
+    --provider-columns: 2;
   }
 }
 
-.tabular-nums {
+@media (max-width: 680px) {
+  :root {
+    --provider-columns: 1;
+  }
+}
+
+/* Custom enhancements for multi-client & breakdown */
+.comparison-tabs {
+  display: flex;
+  gap: 4px;
+  background: var(--glass-hi);
+  border: 1px solid var(--glass-edge);
+  border-radius: 17px;
+  padding: 2px;
+}
+
+.comparison-tab-btn {
+  padding: 4px 10px;
+  font-size: 11.5px;
+  border-radius: 14px;
+  border: 0;
+  background: transparent;
+  color: var(--muted);
+  cursor: pointer;
+  transition: all 0.15s ease;
+  font-weight: 500;
+}
+
+.comparison-tab-btn.active {
+  background: var(--accent);
+  color: var(--accent-contrast);
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.15);
+}
+
+.table-scroll {
+  overflow-x: auto;
+  border-radius: 14px;
+  border: 1px solid var(--border);
+  background: var(--glass);
+  margin-top: 14px;
+}
+
+.custom-table {
+  width: 100%;
+  border-collapse: collapse;
+  text-align: left;
+  font-size: 12px;
+}
+
+.custom-table th, .custom-table td {
+  padding: 12px 14px;
+  border-bottom: 1px solid var(--border);
+  vertical-align: middle;
   font-variant-numeric: tabular-nums;
 }
 
-/* Glass Card System (codex-switch style) */
-.glass-panel {
-  background: var(--glass-surface);
-  -webkit-backdrop-filter: var(--glass-blur);
-  backdrop-filter: var(--glass-blur);
-  border: 1px solid var(--glass-border);
-  box-shadow: inset 0 1px 0 var(--glass-highlight), var(--glass-shadow);
-  border-radius: 16px;
+.custom-table th {
+  color: var(--muted);
+  font-weight: 600;
+  font-size: 11.5px;
+  background: color-mix(in srgb, var(--panel) 60%, transparent);
 }
 
-.glass-header {
-  background: rgba(15, 23, 38, 0.78);
-  -webkit-backdrop-filter: blur(16px);
-  backdrop-filter: blur(16px);
-  border-bottom: 1px solid rgba(255, 255, 255, 0.08);
+.custom-table tr:hover td {
+  background: var(--hover);
 }
 
-.glass-capsule {
-  background: rgba(18, 26, 38, 0.7);
-  border: 1px solid rgba(255, 255, 255, 0.08);
-  border-radius: 9999px;
-  padding: 3px;
-}
-
-.glass-capsule-item {
-  border-radius: 9999px;
-  padding: 5px 14px;
-  font-size: 12px;
-  font-weight: 500;
-  transition: all 0.15s ease;
-  color: var(--text-muted);
-}
-
-.glass-capsule-item:hover {
-  color: #fff;
-}
-
-.glass-capsule-item.active {
-  background: rgba(59, 130, 246, 0.2);
-  color: #60a5fa;
-  border: 1px solid rgba(59, 130, 246, 0.35);
-  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.2);
-}
-
-/* Connection breathe pulse (pi-quota-monitor style) */
-@keyframes connection-breathe {
-  0%, 100% {
-    opacity: 0.65;
-    transform: scale(0.9);
-    box-shadow: 0 0 0 2px rgba(16, 185, 129, 0.2);
-  }
-  50% {
-    opacity: 1;
-    transform: scale(1.1);
-    box-shadow: 0 0 0 5px rgba(16, 185, 129, 0.35);
-  }
-}
-
-.connection-dot {
-  width: 7px;
-  height: 7px;
-  background-color: #10b981;
-  border-radius: 9999px;
-  animation: connection-breathe 2.8s ease-in-out infinite;
-  display: inline-block;
-}
-
-/* Custom scrollbars */
-::-webkit-scrollbar {
-  width: 5px;
-  height: 5px;
-}
-::-webkit-scrollbar-track {
-  background: transparent;
-}
-::-webkit-scrollbar-thumb {
-  background: rgba(255, 255, 255, 0.15);
-  border-radius: 9999px;
-}
-::-webkit-scrollbar-thumb:hover {
-  background: rgba(255, 255, 255, 0.25);
+.client-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 2px 8px;
+  border-radius: 6px;
+  font-size: 11px;
+  font-weight: 600;
+  border: 1px solid var(--border);
+  background: var(--glass-hi);
 }

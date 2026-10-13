@@ -1,10 +1,8 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import { Header } from './components/Header';
 import { QuotaCard } from './components/QuotaCard';
-import { UsageMetrics } from './components/UsageMetrics';
-import { UsageTrend } from './components/UsageTrend';
-import { BreakdownTable } from './components/BreakdownTable';
-import { RecentRecordsTable } from './components/RecentRecordsTable';
+import { OverviewDashboard } from './components/OverviewDashboard';
+import { UsageDetailSection } from './components/UsageDetailSection';
 import {
   fetchQuota,
   refreshQuota,
@@ -24,7 +22,6 @@ import type {
   TokenUsageRecord,
   UsageRange,
 } from './types';
-import { ShieldAlert } from 'lucide-react';
 
 export const App: React.FC = () => {
   const [quotaState, setQuotaState] = useState<QuotaState | null>(null);
@@ -34,7 +31,7 @@ export const App: React.FC = () => {
   const [providers, setProviders] = useState<GroupedUsage[]>([]);
   const [clients, setClients] = useState<GroupedUsage[]>([]);
   const [records, setRecords] = useState<TokenUsageRecord[]>([]);
-  const [range, setRange] = useState<UsageRange>('today');
+  const [range, setRange] = useState<UsageRange>('all');
   const [isRefreshing, setIsRefreshing] = useState<boolean>(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -48,7 +45,7 @@ export const App: React.FC = () => {
         fetchByModel(currentRange),
         fetchByProvider(currentRange),
         fetchByClient(currentRange),
-        fetchRecentRecords(30),
+        fetchRecentRecords(50),
       ]);
 
       setQuotaState(quotaData);
@@ -86,68 +83,93 @@ export const App: React.FC = () => {
   const providerList = quotaState ? Object.values(quotaState.providers) : [];
 
   return (
-    <div className="min-h-screen flex flex-col antialiased selection:bg-blue-500/30 selection:text-blue-200">
-      <Header
-        lastUpdated={quotaState?.updatedAt}
-        onRefresh={handleRefresh}
-        isRefreshing={isRefreshing}
-      />
+    <>
+      <a className="skip-link" href="#main">跳至主要内容</a>
+      <Header onRefresh={handleRefresh} isRefreshing={isRefreshing} />
 
-      <main className="flex-1 max-w-7xl w-full mx-auto px-4 sm:px-6 py-8 space-y-8">
-        {error && (
-          <div className="p-3.5 glass-panel bg-rose-950/20 border-rose-500/30 text-rose-300 text-xs flex items-center gap-2.5">
-            <ShieldAlert className="w-4 h-4 text-rose-400 shrink-0" />
-            <span>数据同步提示: {error}</span>
+      <main id="main" className="shell" tabIndex={-1}>
+        <header className="hero">
+          <div>
+            <h1>用量控制台</h1>
+            <p className="subtitle">在统一视图查看 Codex / Claude / Antigravity / Grok 额度与本地 Token 用量</p>
           </div>
+        </header>
+
+        {error && (
+          <aside className="notice" style={{ padding: '12px 18px', border: '1px solid var(--danger)', borderRadius: '12px', background: 'var(--danger-soft)', color: 'var(--danger)', marginBottom: '20px' }}>
+            数据加载提示: {error}
+          </aside>
         )}
 
-        {/* Section 1: Quota Overview */}
-        <section id="quota-section" className="space-y-3.5">
-          <div className="flex items-center justify-between">
-            <div>
-              <h2 className="text-base font-bold text-white tracking-tight">剩余额度</h2>
-              <p className="text-xs text-slate-400">实时读取各服务商官方 5 小时与每周订阅配额窗口</p>
+        {/* Section 1: 剩余额度 */}
+        <section className="section quota-section" aria-labelledby="quota-title">
+          <div className="section-heading">
+            <div className="title-row">
+              <h2 id="quota-title">剩余额度</h2>
+              <div className="help-tip">
+                <details className="info-help">
+                  <summary aria-label="额度与金额口径">?</summary>
+                  <div className="help-content">
+                    <strong>额度与金额口径</strong>
+                    <p>展示各服务商当前登录账号的周期配额，以垂直电池仪表展示剩余百分比与重置倒计时。</p>
+                  </div>
+                </details>
+              </div>
             </div>
           </div>
 
-          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+          <div id="provider-grid" className="provider-grid">
             {providerList.map((p) => (
               <QuotaCard key={p.provider} quota={p} />
             ))}
             {providerList.length === 0 && (
-              <div className="col-span-full py-10 text-center text-slate-400 text-xs glass-panel">
-                正在加载平台配额…
+              <div className="panel" style={{ gridColumn: '1 / -1', textAlign: 'center', padding: '32px' }}>
+                <p className="hint">正在连接各平台额度 API…</p>
               </div>
             )}
           </div>
         </section>
 
-        {/* Section 2: Usage Summary Metrics */}
+        {/* Section 2: 趋势与用量 */}
         {summary && (
-          <section id="usage-section">
-            <UsageMetrics
+          <section className="section" aria-labelledby="overview-title">
+            <div className="section-heading">
+              <div className="title-row">
+                <h2 id="overview-title">趋势与用量</h2>
+                <details className="info-help">
+                  <summary aria-label="关于数据">?</summary>
+                  <div className="help-content">
+                    <strong>关于用量数据</strong>
+                    <p>自动聚合本地已有的会话日志与账本，费用按公开 API 标价折算估算。</p>
+                  </div>
+                </details>
+              </div>
+            </div>
+
+            <OverviewDashboard
               summary={summary}
+              trend={trend}
+              models={models}
+              providers={providers}
+              clients={clients}
               range={range}
               onRangeChange={setRange}
             />
           </section>
         )}
 
-        {/* Section 3: Trend & Breakdown Grid */}
-        <section id="breakdown-section" className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-          <UsageTrend trend={trend} />
-          <BreakdownTable models={models} providers={providers} clients={clients} />
-        </section>
-
-        {/* Section 4: Recent Records */}
-        <section id="records-section">
-          <RecentRecordsTable records={records} />
-        </section>
+        {/* Section 3: 用量分析与明细 */}
+        <UsageDetailSection
+          models={models}
+          clients={clients}
+          providers={providers}
+          records={records}
+        />
       </main>
 
-      <footer className="border-t border-white/5 py-5 px-6 text-center text-xs text-slate-400">
-        <p>Usage Console · 基于 Node.js + React 19 + Tailwind CSS · 参照 codex-switch 与 pi-quota-monitor 视觉架构设计</p>
+      <footer style={{ maxWidth: '1240px', margin: 'auto', padding: '24px 32px 48px', color: 'var(--muted)', fontSize: '12px', borderTop: '1px solid var(--border)', textAlign: 'center' }}>
+        <p>Usage Console · 基于 Node.js + React 19 · 采用 Pi Quota Monitor 视觉系统规范</p>
       </footer>
-    </div>
+    </>
   );
 };
