@@ -1,19 +1,10 @@
-import React, { useState, useEffect, useCallback } from 'react';
+import React, { useState, useEffect, useCallback, useMemo } from 'react';
 import { Header } from './components/Header';
 import { QuotaCard } from './components/QuotaCard';
 import { OverviewDashboard } from './components/OverviewDashboard';
 import { UsageDetailSection } from './components/UsageDetailSection';
-import {
-  fetchQuota,
-  refreshQuota,
-  fetchSummary,
-  fetchTrend,
-  fetchByModel,
-  fetchByProvider,
-  fetchByClient,
-  fetchRecentRecords,
-  syncUsage,
-} from './api';
+import { fetchQuota, refreshQuota, fetchUsageOverview, syncUsage, trendDaysFor } from './api';
+import { withProviderPlaceholders } from './lib/providers';
 import type {
   QuotaState,
   UsageSummary,
@@ -21,7 +12,12 @@ import type {
   GroupedUsage,
   TokenUsageRecord,
   UsageRange,
+  ConnectionState,
 } from './types';
+
+function isAbortError(err: unknown): boolean {
+  return err instanceof DOMException && err.name === 'AbortError';
+}
 
 export const App: React.FC = () => {
   const [quotaState, setQuotaState] = useState<QuotaState | null>(null);
@@ -32,60 +28,100 @@ export const App: React.FC = () => {
   const [clients, setClients] = useState<GroupedUsage[]>([]);
   const [records, setRecords] = useState<TokenUsageRecord[]>([]);
   const [range, setRange] = useState<UsageRange>('all');
-  const [isRefreshing, setIsRefreshing] = useState<boolean>(false);
+  const [isRefreshing, setIsRefreshing] = useState(false);
+  const [isLoadingUsage, setIsLoadingUsage] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [connectionState, setConnectionState] = useState<ConnectionState>('connecting');
+  const [lastUpdated, setLastUpdated] = useState<number | undefined>(undefined);
+  const [includeAgyClaude, setIncludeAgyClaude] = useState(false);
 
-  const loadData = useCallback(async (currentRange: UsageRange) => {
+  const applyUsageOverview = useCallback((data: Awaited<ReturnType<typeof fetchUsageOverview>>) => {
+    setSummary(data.summary);
+    setTrend(data.trend ?? []);
+    setModels(data.models ?? []);
+    setProviders(data.providers ?? []);
+    setClients(data.clients ?? []);
+    setRecords(data.records ?? []);
+    setLastUpdated(data.lastSyncTime || Date.now());
+  }, []);
+
+  const loadQuota = useCallback(async (signal?: AbortSignal) => {
     try {
-      setError(null);
-      const [quotaData, summaryRes, trendData, modelData, providerData, clientData, recordsData] = await Promise.all([
-        fetchQuota(),
-        fetchSummary(currentRange),
-        fetchTrend(14),
-        fetchByModel(currentRange),
-        fetchByProvider(currentRange),
-        fetchByClient(currentRange),
-        fetchRecentRecords(50),
-      ]);
-
+      const quotaData = await fetchQuota(signal);
       setQuotaState(quotaData);
-      setSummary(summaryRes.summary);
-      setTrend(trendData);
-      setModels(modelData);
-      setProviders(providerData);
-      setClients(clientData);
-      setRecords(recordsData);
+      setConnectionState('connected');
     } catch (err) {
-      console.error('Failed to load usage data:', err);
-      setError((err as Error).message);
+      if (isAbortError(err)) return;
+      console.error('Failed to load quota:', err);
+      setConnectionState('offline');
     }
   }, []);
 
+  const loadUsage = useCallback(async (currentRange: UsageRange, excludeAgyClaude: boolean, signal?: AbortSignal) => {
+    try {
+      setError(null);
+      const data = await fetchUsageOverview(currentRange, {
+        days: trendDaysFor(currentRange),
+        excludeAgyClaude,
+        signal,
+      });
+      if (signal?.aborted) return;
+      applyUsageOverview(data);
+      setConnectionState('connected');
+    } catch (err) {
+      if (isAbortError(err) || signal?.aborted) return;
+      console.error('Failed to load usage data:', err);
+      setError((err as Error).message);
+      setConnectionState('offline');
+    } finally {
+      if (!signal?.aborted) setIsLoadingUsage(false);
+    }
+  }, [applyUsageOverview]);
+
   useEffect(() => {
-    loadData(range);
-  }, [range, loadData]);
+    const controller = new AbortController();
+    loadQuota(controller.signal);
+    return () => controller.abort();
+  }, [loadQuota]);
+
+  useEffect(() => {
+    const controller = new AbortController();
+    setIsLoadingUsage(true);
+    loadUsage(range, !includeAgyClaude, controller.signal);
+    return () => controller.abort();
+  }, [range, includeAgyClaude, loadUsage]);
 
   const handleRefresh = async () => {
     setIsRefreshing(true);
+    setConnectionState('connecting');
     try {
-      await Promise.all([
-        refreshQuota(),
-        syncUsage(),
-      ]);
-      await loadData(range);
+      const [quotaResult] = await Promise.allSettled([refreshQuota(), syncUsage()]);
+      if (quotaResult.status === 'fulfilled') {
+        setQuotaState(quotaResult.value);
+      }
+      await loadUsage(range, !includeAgyClaude);
     } catch (err) {
       console.error('Refresh failed:', err);
+      setConnectionState('offline');
     } finally {
       setIsRefreshing(false);
     }
   };
 
-  const providerList = quotaState ? Object.values(quotaState.providers) : [];
+  const providerList = useMemo(() => {
+    const live = quotaState?.providers ? Object.values(quotaState.providers) : [];
+    return withProviderPlaceholders(live);
+  }, [quotaState]);
 
   return (
     <>
       <a className="skip-link" href="#main">跳至主要内容</a>
-      <Header onRefresh={handleRefresh} isRefreshing={isRefreshing} />
+      <Header
+        onRefresh={handleRefresh}
+        isRefreshing={isRefreshing}
+        connectionState={connectionState}
+        lastUpdated={lastUpdated}
+      />
 
       <main id="main" className="shell" tabIndex={-1}>
         <header className="hero">
@@ -96,12 +132,11 @@ export const App: React.FC = () => {
         </header>
 
         {error && (
-          <aside className="notice" style={{ padding: '12px 18px', border: '1px solid var(--danger)', borderRadius: '12px', background: 'var(--danger-soft)', color: 'var(--danger)', marginBottom: '20px' }}>
+          <aside className="notice" role="alert">
             数据加载提示: {error}
           </aside>
         )}
 
-        {/* Section 1: 剩余额度 */}
         <section className="section quota-section" aria-labelledby="quota-title">
           <div className="section-heading">
             <div className="title-row">
@@ -111,7 +146,7 @@ export const App: React.FC = () => {
                   <summary aria-label="额度与金额口径">?</summary>
                   <div className="help-content">
                     <strong>额度与金额口径</strong>
-                    <p>展示各服务商当前登录账号的周期配额，以垂直电池仪表展示剩余百分比与重置倒计时。</p>
+                    <p>展示各服务商当前登录账号的周期配额。未配置的平台会显示占位卡，避免页面空白。</p>
                   </div>
                 </details>
               </div>
@@ -119,33 +154,31 @@ export const App: React.FC = () => {
           </div>
 
           <div id="provider-grid" className="provider-grid">
-            {providerList.map((p) => (
-              <QuotaCard key={p.provider} quota={p} />
+            {providerList.map((quota) => (
+              <QuotaCard
+                key={`${quota.provider}-${quota.displayName}`}
+                quota={quota}
+                includeAgyClaude={includeAgyClaude}
+              />
             ))}
-            {providerList.length === 0 && (
-              <div className="panel" style={{ gridColumn: '1 / -1', textAlign: 'center', padding: '32px' }}>
-                <p className="hint">正在连接各平台额度 API…</p>
-              </div>
-            )}
           </div>
         </section>
 
-        {/* Section 2: 趋势与用量 */}
-        {summary && (
-          <section className="section" aria-labelledby="overview-title">
-            <div className="section-heading">
-              <div className="title-row">
-                <h2 id="overview-title">趋势与用量</h2>
-                <details className="info-help">
-                  <summary aria-label="关于数据">?</summary>
-                  <div className="help-content">
-                    <strong>关于用量数据</strong>
-                    <p>自动聚合本地已有的会话日志与账本，费用按公开 API 标价折算估算。</p>
-                  </div>
-                </details>
-              </div>
+        <section className="section" aria-labelledby="overview-title">
+          <div className="section-heading">
+            <div className="title-row">
+              <h2 id="overview-title">趋势与用量</h2>
+              <details className="info-help">
+                <summary aria-label="关于数据">?</summary>
+                <div className="help-content">
+                  <strong>关于用量数据</strong>
+                  <p>自动聚合本地已有的会话日志与账本，费用按公开 API 标价折算估算。切换时间范围不会重复拉取额度。</p>
+                </div>
+              </details>
             </div>
+          </div>
 
+          {summary ? (
             <OverviewDashboard
               summary={summary}
               trend={trend}
@@ -154,11 +187,16 @@ export const App: React.FC = () => {
               clients={clients}
               range={range}
               onRangeChange={setRange}
+              includeAgyClaude={includeAgyClaude}
+              onIncludeAgyClaudeChange={setIncludeAgyClaude}
             />
-          </section>
-        )}
+          ) : (
+            <div className="panel loading-panel">
+              <p className="hint">{isLoadingUsage ? '正在加载用量数据…' : '暂无用量数据'}</p>
+            </div>
+          )}
+        </section>
 
-        {/* Section 3: 用量分析与明细 */}
         <UsageDetailSection
           models={models}
           clients={clients}
@@ -167,7 +205,7 @@ export const App: React.FC = () => {
         />
       </main>
 
-      <footer style={{ maxWidth: '1240px', margin: 'auto', padding: '24px 32px 48px', color: 'var(--muted)', fontSize: '12px', borderTop: '1px solid var(--border)', textAlign: 'center' }}>
+      <footer className="app-footer">
         <p>Usage Console · 基于 Node.js + React 19 · 采用 Pi Quota Monitor 视觉系统规范</p>
       </footer>
     </>

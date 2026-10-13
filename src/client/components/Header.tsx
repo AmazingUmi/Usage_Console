@@ -1,12 +1,29 @@
 import React from 'react';
+import type { ConnectionState } from '../types';
 
 interface HeaderProps {
   lastUpdated?: number;
   onRefresh: () => void;
   isRefreshing: boolean;
+  connectionState?: ConnectionState;
 }
 
-export const Header: React.FC<HeaderProps> = ({ onRefresh, isRefreshing }) => {
+const STATUS_LABEL: Record<ConnectionState, string> = {
+  connecting: '正在连接本地数据源',
+  connected: '已连接本地数据源',
+  offline: '数据源连接失败',
+};
+
+export const Header: React.FC<HeaderProps> = ({
+  onRefresh,
+  isRefreshing,
+  lastUpdated,
+  connectionState = 'connecting',
+}) => {
+  const statusTitle = lastUpdated
+    ? `${STATUS_LABEL[connectionState]} · 更新于 ${new Date(lastUpdated).toLocaleTimeString()}`
+    : STATUS_LABEL[connectionState];
+
   return (
     <header className="app-header">
       <div className="header-inner">
@@ -34,10 +51,10 @@ export const Header: React.FC<HeaderProps> = ({ onRefresh, isRefreshing }) => {
         <span
           id="connection-status"
           className="connection-status"
-          data-state="connected"
+          data-state={connectionState === 'offline' ? 'offline' : 'connected'}
           role="status"
-          aria-label="已连接"
-          title="已连接本地数据源"
+          aria-label={STATUS_LABEL[connectionState]}
+          title={statusTitle}
         ></span>
       </div>
     </header>

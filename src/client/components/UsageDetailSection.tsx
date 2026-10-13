@@ -1,5 +1,6 @@
 import React, { useState } from 'react';
 import type { GroupedUsage, TokenUsageRecord } from '../types';
+import { formatDateTime, formatTokens, formatUsd } from '../lib/format';
 
 interface UsageDetailSectionProps {
   models: GroupedUsage[];
@@ -8,21 +9,21 @@ interface UsageDetailSectionProps {
   records: TokenUsageRecord[];
 }
 
-function formatTokens(num: number): string {
-  if (num >= 1_000_000) return `${(num / 1_000_000).toFixed(2)}M`;
-  if (num >= 1_000) return `${(num / 1_000).toFixed(1)}K`;
-  return num.toLocaleString();
-}
-
-function formatDateTime(timestamp: number): string {
-  const date = new Date(timestamp);
-  return `${date.getMonth() + 1}/${date.getDate()} ${String(date.getHours()).padStart(2, '0')}:${String(date.getMinutes()).padStart(2, '0')}:${String(date.getSeconds()).padStart(2, '0')}`;
+function PercentageCell({ value }: { value: number }) {
+  const percent = Number.isFinite(value) ? Math.max(0, Math.min(100, value)) : 0;
+  return (
+    <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+      <div style={{ flex: 1, height: '5px', background: 'var(--track)', borderRadius: '3px', overflow: 'hidden' }}>
+        <div style={{ height: '100%', width: `${percent}%`, background: 'var(--accent)' }} />
+      </div>
+      <span style={{ fontSize: '11px', color: 'var(--muted)', width: '36px' }}>{percent}%</span>
+    </div>
+  );
 }
 
 export const UsageDetailSection: React.FC<UsageDetailSectionProps> = ({
   models,
   clients,
-  providers,
   records,
 }) => {
   const [activeTab, setActiveTab] = useState<'software' | 'model' | 'records'>('software');
@@ -89,25 +90,20 @@ export const UsageDetailSection: React.FC<UsageDetailSectionProps> = ({
                   </tr>
                 </thead>
                 <tbody>
-                  {clients.map((c) => (
-                    <tr key={c.name}>
+                  {clients.map((item) => (
+                    <tr key={item.name}>
                       <td style={{ fontWeight: 600 }}>
-                        <span className="client-badge">{c.name}</span>
+                        <span className="client-badge">{item.name}</span>
                       </td>
                       <td style={{ minWidth: '120px' }}>
-                        <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-                          <div style={{ flex: 1, height: '5px', background: 'var(--track)', borderRadius: '3px', overflow: 'hidden' }}>
-                            <div style={{ height: '100%', width: `${c.percentage}%`, background: 'var(--accent)' }} />
-                          </div>
-                          <span style={{ fontSize: '11px', color: 'var(--muted)', width: '36px' }}>{c.percentage}%</span>
-                        </div>
+                        <PercentageCell value={item.percentage} />
                       </td>
-                      <td style={{ fontWeight: 650 }}>{formatTokens(c.totalTokens)}</td>
-                      <td style={{ color: 'var(--muted)' }}>{formatTokens(c.inputTokens)} / {formatTokens(c.outputTokens)}</td>
-                      <td style={{ color: 'var(--muted)' }}>{c.reasoningTokens ? formatTokens(c.reasoningTokens) : '—'}</td>
-                      <td>{c.requestCount.toLocaleString()} 次</td>
+                      <td style={{ fontWeight: 650 }}>{formatTokens(item.totalTokens)}</td>
+                      <td style={{ color: 'var(--muted)' }}>{formatTokens(item.inputTokens)} / {formatTokens(item.outputTokens)}</td>
+                      <td style={{ color: 'var(--muted)' }}>{item.reasoningTokens ? formatTokens(item.reasoningTokens) : '—'}</td>
+                      <td>{(item.requestCount || 0).toLocaleString()} 次</td>
                       <td style={{ textAlign: 'right', fontWeight: 650, color: 'var(--accent)' }}>
-                        ${c.estimatedCostUsd.toFixed(3)}
+                        {formatUsd(item.estimatedCostUsd)}
                       </td>
                     </tr>
                   ))}
@@ -153,23 +149,18 @@ export const UsageDetailSection: React.FC<UsageDetailSectionProps> = ({
                   </tr>
                 </thead>
                 <tbody>
-                  {models.map((m) => (
-                    <tr key={m.name}>
-                      <td style={{ fontWeight: 600, fontFamily: 'var(--mono)' }}>{m.name}</td>
+                  {models.map((item) => (
+                    <tr key={item.name}>
+                      <td style={{ fontWeight: 600, fontFamily: 'var(--mono)' }}>{item.name}</td>
                       <td style={{ minWidth: '120px' }}>
-                        <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-                          <div style={{ flex: 1, height: '5px', background: 'var(--track)', borderRadius: '3px', overflow: 'hidden' }}>
-                            <div style={{ height: '100%', width: `${m.percentage}%`, background: 'var(--accent)' }} />
-                          </div>
-                          <span style={{ fontSize: '11px', color: 'var(--muted)', width: '36px' }}>{m.percentage}%</span>
-                        </div>
+                        <PercentageCell value={item.percentage} />
                       </td>
-                      <td style={{ fontWeight: 650 }}>{formatTokens(m.totalTokens)}</td>
-                      <td style={{ color: 'var(--muted)' }}>{formatTokens(m.inputTokens)} / {formatTokens(m.outputTokens)}</td>
-                      <td style={{ color: 'var(--muted)' }}>{m.reasoningTokens ? formatTokens(m.reasoningTokens) : '—'}</td>
-                      <td>{m.requestCount.toLocaleString()} 次</td>
+                      <td style={{ fontWeight: 650 }}>{formatTokens(item.totalTokens)}</td>
+                      <td style={{ color: 'var(--muted)' }}>{formatTokens(item.inputTokens)} / {formatTokens(item.outputTokens)}</td>
+                      <td style={{ color: 'var(--muted)' }}>{item.reasoningTokens ? formatTokens(item.reasoningTokens) : '—'}</td>
+                      <td>{(item.requestCount || 0).toLocaleString()} 次</td>
                       <td style={{ textAlign: 'right', fontWeight: 650, color: 'var(--accent)' }}>
-                        ${m.estimatedCostUsd.toFixed(3)}
+                        {formatUsd(item.estimatedCostUsd)}
                       </td>
                     </tr>
                   ))}
@@ -195,7 +186,7 @@ export const UsageDetailSection: React.FC<UsageDetailSectionProps> = ({
                   <summary aria-label="流水说明">?</summary>
                   <div className="help-content">
                     <strong>调用流水</strong>
-                    <p>展示各客户端近期的每一次独立请求调用与明细。</p>
+                    <p>展示当前统计范围内各客户端近期的每一次独立请求调用与明细。</p>
                   </div>
                 </details>
               </div>
@@ -217,27 +208,27 @@ export const UsageDetailSection: React.FC<UsageDetailSectionProps> = ({
                   </tr>
                 </thead>
                 <tbody>
-                  {records.map((r, idx) => (
-                    <tr key={idx}>
+                  {records.map((record, idx) => (
+                    <tr key={record.id || `${record.timestamp}-${record.model}-${idx}`}>
                       <td style={{ color: 'var(--muted)', fontFamily: 'var(--mono)', fontSize: '11.5px', whiteSpace: 'nowrap' }}>
-                        {formatDateTime(r.timestamp)}
+                        {formatDateTime(record.timestamp)}
                       </td>
                       <td>
-                        <span className="client-badge">{r.client || 'unknown'}</span>
+                        <span className="client-badge">{record.client || 'unknown'}</span>
                       </td>
                       <td>
-                        <span style={{ color: 'var(--muted)', fontSize: '11px' }}>{r.provider}</span>
+                        <span style={{ color: 'var(--muted)', fontSize: '11px' }}>{record.provider}</span>
                       </td>
-                      <td style={{ fontFamily: 'var(--mono)', fontWeight: 550 }}>{r.model}</td>
-                      <td>{formatTokens(r.input)}</td>
+                      <td style={{ fontFamily: 'var(--mono)', fontWeight: 550 }}>{record.model}</td>
+                      <td>{formatTokens(record.input)}</td>
                       <td>
-                        {formatTokens(r.output)}
-                        {r.reasoning ? <span style={{ color: 'var(--chart-secondary)', fontSize: '10.5px', marginLeft: '4px' }}>({formatTokens(r.reasoning)})</span> : null}
+                        {formatTokens(record.output)}
+                        {record.reasoning ? <span style={{ color: 'var(--chart-secondary)', fontSize: '10.5px', marginLeft: '4px' }}>({formatTokens(record.reasoning)})</span> : null}
                       </td>
-                      <td style={{ color: 'var(--muted)' }}>{r.cacheRead ? formatTokens(r.cacheRead) : '—'}</td>
-                      <td style={{ fontWeight: 650 }}>{formatTokens(r.totalTokens)}</td>
+                      <td style={{ color: 'var(--muted)' }}>{record.cacheRead ? formatTokens(record.cacheRead) : '—'}</td>
+                      <td style={{ fontWeight: 650 }}>{formatTokens(record.totalTokens)}</td>
                       <td style={{ textAlign: 'right', fontWeight: 600, color: 'var(--accent)' }}>
-                        ${(r.estimatedCostUsd || 0).toFixed(4)}
+                        {formatUsd(record.estimatedCostUsd, 4)}
                       </td>
                     </tr>
                   ))}

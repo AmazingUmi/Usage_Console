@@ -1,5 +1,6 @@
-import React, { useState } from 'react';
+import React, { useMemo, useState } from 'react';
 import type { UsageSummary, DailyTrendPoint, GroupedUsage, UsageRange } from '../types';
+import { formatCnyFromUsd, formatTokens, formatUsd } from '../lib/format';
 
 interface OverviewDashboardProps {
   summary: UsageSummary;
@@ -9,12 +10,8 @@ interface OverviewDashboardProps {
   clients: GroupedUsage[];
   range: UsageRange;
   onRangeChange: (r: UsageRange) => void;
-}
-
-function formatTokens(num: number): string {
-  if (num >= 1_000_000) return `${(num / 1_000_000).toFixed(2)}M`;
-  if (num >= 1_000) return `${(num / 1_000).toFixed(1)}K`;
-  return num.toLocaleString();
+  includeAgyClaude: boolean;
+  onIncludeAgyClaudeChange: (value: boolean) => void;
 }
 
 export const OverviewDashboard: React.FC<OverviewDashboardProps> = ({
@@ -25,30 +22,40 @@ export const OverviewDashboard: React.FC<OverviewDashboardProps> = ({
   clients,
   range,
   onRangeChange,
+  includeAgyClaude,
+  onIncludeAgyClaudeChange,
 }) => {
   const [comparisonMetric, setComparisonMetric] = useState<'cost' | 'tokens'>('tokens');
   const [comparisonDimension, setComparisonDimension] = useState<'client' | 'model' | 'provider'>('client');
   const [hoveredPoint, setHoveredPoint] = useState<DailyTrendPoint | null>(null);
 
-  let currentList = models;
-  if (comparisonDimension === 'client') currentList = clients;
-  else if (comparisonDimension === 'provider') currentList = providers;
+  const currentList = comparisonDimension === 'client'
+    ? clients
+    : comparisonDimension === 'provider'
+      ? providers
+      : models;
 
   const maxVal = Math.max(
-    ...currentList.map(item => comparisonMetric === 'cost' ? item.estimatedCostUsd : item.totalTokens),
-    1
+    1,
+    ...currentList.map((item) => (comparisonMetric === 'cost' ? item.estimatedCostUsd : item.totalTokens)),
   );
 
   const totalSum = currentList.reduce(
-    (acc, item) => acc + (comparisonMetric === 'cost' ? item.estimatedCostUsd : item.totalTokens),
-    0
+    (acc, item) => acc + (comparisonMetric === 'cost' ? item.estimatedCostUsd || 0 : item.totalTokens || 0),
+    0,
   );
 
-  const maxTrendTokens = Math.max(...trend.map(t => t.totalTokens), 1000);
+  const maxTrendTokens = Math.max(1000, ...trend.map((point) => point.totalTokens || 0));
+  const avgTokens = summary.requestCount > 0 ? Math.round(summary.totalTokens / summary.requestCount) : 0;
+  const trendLabel = trend.length > 0 ? `${trend.length} 天` : '近期';
+
+  const axisLabels = useMemo(() => {
+    if (trend.length === 0) return [];
+    return [trend[0], trend[Math.floor(trend.length / 2)], trend[trend.length - 1]];
+  }, [trend]);
 
   return (
     <div className="dash-row">
-      {/* Left: Usage Panel with Stat Row & Trend Chart */}
       <div className="panel usage-panel">
         <div className="overview-card-header">
           <div className="stat-row">
@@ -59,7 +66,7 @@ export const OverviewDashboard: React.FC<OverviewDashboardProps> = ({
                   <summary aria-label="Token 统计说明">?</summary>
                   <div className="help-content">
                     <strong>Token 统计说明</strong>
-                    <p>统计当前时间范围内本机开发客户端产生的输入输出 Token 总和。</p>
+                    <p>统计当前时间范围内本机开发客户端产生的输入输出 Token 总和。Antigravity 的 Claude 模型默认不计入。</p>
                   </div>
                 </details>
               </div>
@@ -78,107 +85,98 @@ export const OverviewDashboard: React.FC<OverviewDashboardProps> = ({
                   </div>
                 </details>
               </div>
-              <strong id="overview-cost">${summary.estimatedCostUsd.toFixed(3)}</strong>
-              <small>折合约 ¥{(summary.estimatedCostUsd * 7.25).toFixed(2)} CNY</small>
+              <strong id="overview-cost">{formatUsd(summary.estimatedCostUsd)}</strong>
+              <small>折合约 {formatCnyFromUsd(summary.estimatedCostUsd)} CNY</small>
             </div>
 
             <div className="stat">
               <div className="stat-label">请求调用量</div>
-              <strong>{summary.requestCount.toLocaleString()} <span className="unit">次</span></strong>
-              <small>
-                平均: {summary.requestCount > 0 ? formatTokens(Math.round(summary.totalTokens / summary.requestCount)) : 0}/次
-              </small>
+              <strong>{(summary.requestCount || 0).toLocaleString()} <span className="unit">次</span></strong>
+              <small>平均: {formatTokens(avgTokens)}/次</small>
             </div>
 
             <div className="stat">
               <div className="stat-label">缓存命中与推理</div>
               <strong>{formatTokens(summary.cacheReadTokens)}</strong>
-              <small>推理输出: {formatTokens(summary.reasoningTokens)}</small>
+              <small>
+                推理 {formatTokens(summary.reasoningTokens)} · 写入 {formatTokens(summary.cacheWriteTokens)}
+              </small>
             </div>
           </div>
 
-          <div className="ledger-filter">
-            <label htmlFor="range-select">统计范围</label>
-            <select
-              id="range-select"
-              value={range}
-              onChange={(e) => onRangeChange(e.target.value as UsageRange)}
+          <div className="overview-toolbar">
+            <div className="ledger-filter">
+              <label htmlFor="range-select">统计范围</label>
+              <select
+                id="range-select"
+                value={range}
+                onChange={(e) => onRangeChange(e.target.value as UsageRange)}
+              >
+                <option value="today">今日用量</option>
+                <option value="7d">近 7 天</option>
+                <option value="30d">近 30 天</option>
+                <option value="all">总体用量 (全部)</option>
+              </select>
+            </div>
+            <button
+              type="button"
+              className={`comparison-tab-btn ${includeAgyClaude ? 'active' : ''}`}
+              onClick={() => onIncludeAgyClaudeChange(!includeAgyClaude)}
+              title="Antigravity 的 Claude 模型默认不计入用量与额度"
             >
-              <option value="today">今日用量</option>
-              <option value="7d">近 7 天</option>
-              <option value="30d">近 30 天</option>
-              <option value="all">总体用量 (全部)</option>
-            </select>
+              {includeAgyClaude ? '已含 AGY Claude' : '已隐藏 AGY Claude'}
+            </button>
           </div>
         </div>
 
-        {/* Trend Chart Heading */}
-        <div className="chart-heading" style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+        <div className="chart-heading">
           <div className="title-row" style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-            <h3 style={{ fontSize: '15px', fontWeight: 650 }}>Token 消耗趋势（14 天）</h3>
+            <h3 style={{ fontSize: '15px', fontWeight: 650 }}>Token 消耗趋势（{trendLabel}）</h3>
             <details className="info-help">
               <summary aria-label="消耗趋势说明">?</summary>
               <div className="help-content">
                 <strong>消耗趋势说明</strong>
-                <p>每日调用产生的 Token 总消耗柱状走势，悬停柱子可查看具体时间与开销。</p>
+                <p>每日调用产生的 Token 总消耗柱状走势。悬停浮层不会改变图表高度，避免抖动。</p>
               </div>
             </details>
           </div>
-
-          {hoveredPoint ? (
-            <div style={{ fontSize: '12px', color: 'var(--text)', background: 'var(--glass-hi)', padding: '3px 12px', borderRadius: '12px', border: '1px solid var(--border)', fontVariantNumeric: 'tabular-nums' }}>
-              <strong>{hoveredPoint.date}</strong>: {formatTokens(hoveredPoint.totalTokens)} tokens (${hoveredPoint.estimatedCostUsd.toFixed(2)})
-            </div>
-          ) : (
-            <span style={{ fontSize: '11.5px', color: 'var(--muted)' }}>悬停查看日期详情</span>
-          )}
         </div>
 
-        {/* SVG / CSS Bars Chart */}
-        <div style={{ height: '170px', display: 'flex', alignItems: 'flex-end', gap: '8px', padding: '16px 0 8px', borderBottom: '1px solid var(--border)' }}>
+        <div className="trend-chart" onMouseLeave={() => setHoveredPoint(null)}>
+          {hoveredPoint && (
+            <div className="trend-tooltip" role="status">
+              <strong>{hoveredPoint.date}</strong>
+              <span>{formatTokens(hoveredPoint.totalTokens)} tokens</span>
+              <span>{formatUsd(hoveredPoint.estimatedCostUsd, 2)}</span>
+              <span>{hoveredPoint.requestCount || 0} 次</span>
+            </div>
+          )}
           {trend.map((point) => {
-            const h = Math.max(4, (point.totalTokens / maxTrendTokens) * 100);
+            const h = Math.max(4, ((point.totalTokens || 0) / maxTrendTokens) * 100);
             const isHovered = hoveredPoint?.date === point.date;
 
             return (
               <div
                 key={point.date}
-                style={{ flex: 1, display: 'flex', flexDirection: 'column', alignItems: 'center', height: '100%', justifyContent: 'flex-end', cursor: 'pointer' }}
+                className="trend-col"
                 onMouseEnter={() => setHoveredPoint(point)}
-                onMouseLeave={() => setHoveredPoint(null)}
               >
                 <div
-                  style={{
-                    width: '100%',
-                    maxWidth: '24px',
-                    height: `${h}%`,
-                    borderRadius: '4px 4px 0 0',
-                    background: isHovered
-                      ? 'var(--accent-hi)'
-                      : point.totalTokens > 0
-                      ? 'var(--accent)'
-                      : 'var(--track)',
-                    boxShadow: isHovered ? '0 0 12px var(--accent)' : 'none',
-                    transition: 'all 0.15s ease',
-                  }}
+                  className={`trend-bar${isHovered ? ' is-hovered' : ''}${(point.totalTokens || 0) > 0 ? '' : ' is-empty'}`}
+                  style={{ height: `${Number.isFinite(h) ? h : 4}%` }}
                 />
               </div>
             );
           })}
         </div>
 
-        <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '11px', color: 'var(--muted)', marginTop: '8px', fontVariantNumeric: 'tabular-nums' }}>
-          {trend.length > 0 && (
-            <>
-              <span>{trend[0].date}</span>
-              <span>{trend[Math.floor(trend.length / 2)].date}</span>
-              <span>{trend[trend.length - 1].date}</span>
-            </>
-          )}
+        <div className="trend-axis">
+          {axisLabels.map((point, index) => (
+            <span key={`${point.date}-${index}`}>{point.date}</span>
+          ))}
         </div>
       </div>
 
-      {/* Right: Side Panel with Model & Client Comparison */}
       <aside className="panel side-panel" aria-label="用量分布对比">
         <section className="model-comparison" aria-labelledby="model-comparison-title">
           <div className="title-row" style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
@@ -194,7 +192,6 @@ export const OverviewDashboard: React.FC<OverviewDashboardProps> = ({
             </details>
           </div>
 
-          {/* Controls: Dimension + Metric */}
           <div className="comparison-controls" style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', width: '100%' }}>
               <div className="comparison-tabs">
@@ -243,15 +240,14 @@ export const OverviewDashboard: React.FC<OverviewDashboardProps> = ({
           <div className="comparison-total">
             <span>合计</span>
             <strong id="model-comparison-total">
-              {comparisonMetric === 'cost' ? `$${totalSum.toFixed(3)}` : formatTokens(totalSum)}
+              {comparisonMetric === 'cost' ? formatUsd(totalSum) : formatTokens(totalSum)}
             </strong>
             <span id="model-comparison-unit">{comparisonMetric === 'cost' ? 'USD' : 'Tokens'}</span>
           </div>
 
-          {/* Normalized Track List */}
           <ol className="comparison-list" tabIndex={0} style={{ maxHeight: '240px', overflowY: 'auto' }}>
             {currentList.map((item) => {
-              const val = comparisonMetric === 'cost' ? item.estimatedCostUsd : item.totalTokens;
+              const val = comparisonMetric === 'cost' ? item.estimatedCostUsd || 0 : item.totalTokens || 0;
               const fillPercent = Math.max(3, (val / maxVal) * 100);
 
               return (
@@ -261,12 +257,12 @@ export const OverviewDashboard: React.FC<OverviewDashboardProps> = ({
                       {item.name}
                     </span>
                     <span className="comparison-model-value">
-                      {comparisonMetric === 'cost' ? `$${item.estimatedCostUsd.toFixed(3)}` : formatTokens(item.totalTokens)}
-                      <span style={{ fontSize: '11px', color: 'var(--muted)', marginLeft: '6px' }}>({item.percentage}%)</span>
+                      {comparisonMetric === 'cost' ? formatUsd(item.estimatedCostUsd) : formatTokens(item.totalTokens)}
+                      <span style={{ fontSize: '11px', color: 'var(--muted)', marginLeft: '6px' }}>({item.percentage || 0}%)</span>
                     </span>
                   </div>
                   <div className="comparison-track">
-                    <span style={{ width: `${fillPercent}%` }}></span>
+                    <span style={{ width: `${Number.isFinite(fillPercent) ? fillPercent : 0}%` }}></span>
                   </div>
                 </li>
               );

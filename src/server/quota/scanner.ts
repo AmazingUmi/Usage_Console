@@ -97,22 +97,6 @@ export async function getLatestQuotaState(): Promise<QuotaState> {
     console.warn(`Could not read quota directory ${baseDir}:`, (err as Error).message);
   }
 
-  // If no providers found, check fallback or mock data
-  if (Object.keys(providers).length === 0) {
-    providers['codex'] = {
-      provider: 'codex',
-      displayName: 'OpenAI Codex',
-      plan: 'Plus',
-      capturedAt: Date.now(),
-      status: 'warning',
-      errorMessage: '等待同步额度或未配置凭据',
-      windows: [
-        { label: '5-Hour Window', remainingPercent: 100, resetAt: Date.now() + 3600 * 1000 * 3 },
-        { label: 'Weekly Window', remainingPercent: 100, resetAt: Date.now() + 3600 * 1000 * 24 * 5 },
-      ]
-    };
-  }
-
   return {
     updatedAt: Date.now(),
     providers,

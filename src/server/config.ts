@@ -13,6 +13,7 @@ export const CONFIG = {
     codexAuth: path.join(HOME, '.codex', 'auth.json'),
     pi: path.join(HOME, '.pi'),
     piAgent: path.join(HOME, '.pi', 'agent'),
+    piQuotaMonitor: path.join(HOME, '.pi', 'agent', 'pi-quota-monitor'),
     piQuotaReadings: path.join(HOME, '.pi', 'agent', 'pi-quota-monitor', 'quota-readings'),
     piUsage: path.join(HOME, '.pi', 'agent', 'pi-quota-monitor', 'usage'),
     gemini: path.join(HOME, '.gemini'),

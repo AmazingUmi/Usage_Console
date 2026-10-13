@@ -75,3 +75,16 @@ export interface TokenUsageRecord {
 }
 
 export type UsageRange = 'today' | '7d' | '30d' | 'all';
+
+export interface UsageOverview {
+  range: UsageRange;
+  summary: UsageSummary;
+  trend: DailyTrendPoint[];
+  models: GroupedUsage[];
+  providers: GroupedUsage[];
+  clients: GroupedUsage[];
+  records: TokenUsageRecord[];
+  lastSyncTime: number;
+}
+
+export type ConnectionState = 'connecting' | 'connected' | 'offline';

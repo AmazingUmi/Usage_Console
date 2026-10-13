@@ -89,3 +89,199 @@
   border: 1px solid var(--border);
   background: var(--glass-hi);
 }
+
+.loading-panel {
+  text-align: center;
+  padding: 36px 24px;
+}
+
+.app-footer {
+  max-width: 1240px;
+  margin: 0 auto;
+  padding: 24px 32px 48px;
+  color: var(--muted);
+  font-size: 12px;
+  border-top: 1px solid var(--border);
+  text-align: center;
+  display: block;
+}
+
+/* Compact quota cards: no stretched empty columns, smaller batteries */
+.provider-grid {
+  align-items: start;
+  gap: 12px;
+}
+
+.provider-card.panel {
+  padding: 14px 14px 12px;
+  min-height: 0;
+}
+
+.provider-heading {
+  margin-bottom: 8px;
+  gap: 8px;
+}
+
+.provider-heading h3 {
+  font-size: 14px;
+  line-height: 1.3;
+}
+
+.provider-heading .hint {
+  min-height: 0;
+  -webkit-line-clamp: 1;
+  font-size: 11px;
+}
+
+.provider-card .quota-groups {
+  gap: 0;
+}
+
+.provider-card .gauge {
+  gap: 8px 10px;
+  margin-bottom: 8px;
+  min-height: 0;
+}
+
+.provider-card .gauge-row {
+  --bw: 52px;
+  gap: 4px;
+}
+
+.provider-card .gauge-row:last-child:nth-child(odd) {
+  --bw: 52px;
+  grid-column: auto;
+  width: auto;
+  justify-self: center;
+}
+
+.provider-card .gauge.gauge-count-1 {
+  grid-template-columns: 1fr;
+}
+
+.provider-card .battery-stage {
+  padding: 6px 0 0;
+}
+
+.provider-card .battery {
+  height: 88px;
+  border-width: 2px;
+  border-radius: 18px;
+  padding: 4px;
+}
+
+.provider-card .battery::before {
+  top: -8px;
+  width: 22px;
+  height: 6px;
+}
+
+.provider-card .gauge-row .gauge-val {
+  font-size: 20px;
+  margin-top: 0;
+}
+
+.provider-card .gauge-reset {
+  padding: 2px 8px;
+  font-size: 11px;
+}
+
+.provider-card .provider-foot {
+  margin-top: 8px;
+  padding-top: 8px;
+}
+
+.provider-card.is-empty .quota-empty-note {
+  grid-column: 1 / -1;
+  text-align: center;
+  padding: 12px 0;
+}
+
+.overview-toolbar {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: 8px;
+  margin-left: auto;
+}
+
+.usage-panel .chart-heading {
+  flex-direction: row;
+  align-items: center;
+  margin-bottom: 8px;
+}
+
+.trend-chart {
+  position: relative;
+  height: 168px;
+  display: flex;
+  align-items: flex-end;
+  gap: 4px;
+  padding: 32px 0 8px;
+  border-bottom: 1px solid var(--border);
+}
+
+.trend-col {
+  flex: 1;
+  height: 100%;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: flex-end;
+  cursor: pointer;
+}
+
+.trend-bar {
+  width: 100%;
+  max-width: 22px;
+  border-radius: 4px 4px 0 0;
+  background: var(--accent);
+  transition: background-color 0.15s ease, box-shadow 0.15s ease;
+}
+
+.trend-bar.is-empty {
+  background: var(--track);
+}
+
+.trend-bar.is-hovered {
+  background: var(--accent-hi);
+  box-shadow: 0 0 12px var(--accent);
+}
+
+.trend-tooltip {
+  position: absolute;
+  top: 4px;
+  left: 50%;
+  transform: translateX(-50%);
+  z-index: 2;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 4px 12px;
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  background: var(--glass-hi);
+  color: var(--text);
+  font-size: 12px;
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+  pointer-events: none;
+  box-shadow: var(--glass-shadow);
+}
+
+.trend-axis {
+  display: flex;
+  justify-content: space-between;
+  margin-top: 8px;
+  color: var(--muted);
+  font-size: 11px;
+  font-variant-numeric: tabular-nums;
+}
+
+@media (max-width: 600px) {
+  .overview-toolbar {
+    width: 100%;
+    align-items: stretch;
+    margin-left: 0;
+  }
+}

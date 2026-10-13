@@ -2,7 +2,8 @@ import fs from 'node:fs/promises';
 import fsSync from 'node:fs';
 import path from 'node:path';
 import { CONFIG } from '../config.js';
-import type { ProviderQuota, QuotaState, QuotaWindow, QuotaGroup } from './types.js';
+import type { ProviderQuota, QuotaState, QuotaWindow } from './types.js';
+import { getLatestQuotaState } from './scanner.js';
 
 interface RawCodexResponse {
   user_id?: string;
@@ -148,6 +149,7 @@ export async function queryAllLiveQuotas(forceRefresh = false): Promise<QuotaSta
 
   const providers: Record<string, ProviderQuota> = {};
   const tasks: Promise<void>[] = [];
+  const seenAccountIds = new Set<string>();
 
   // Load account identities mapping if exists
   const notesMap: Record<string, { note?: string; email?: string; plan?: string }> = {};
@@ -172,9 +174,10 @@ export async function queryAllLiveQuotas(forceRefresh = false): Promise<QuotaSta
       const content = await fs.readFile(codexAuthPath, 'utf8');
       const auth = JSON.parse(content);
       const token = auth.tokens?.access_token;
-      const accountId = auth.tokens?.account_id;
+      const accountId = auth.tokens?.account_id as string | undefined;
 
       if (token) {
+        if (accountId) seenAccountIds.add(accountId);
         const note = accountId && notesMap[accountId]?.note ? notesMap[accountId].note : 'Primary';
         tasks.push(
           fetchLiveCodexQuota(token, accountId, `Codex [${note}]`)
@@ -202,11 +205,9 @@ export async function queryAllLiveQuotas(forceRefresh = false): Promise<QuotaSta
           const accContent = await fs.readFile(path.join(accountsDir, file), 'utf8');
           const accJson = JSON.parse(accContent);
           if (accJson.type === 'oauth' && accJson.access && accJson.accountId) {
-            const accId = accJson.accountId;
-            // Skip if already queried as primary
-            if (providers['codex_primary'] && providers['codex_primary'].displayName.includes(accId)) {
-              continue;
-            }
+            const accId = accJson.accountId as string;
+            if (seenAccountIds.has(accId)) continue;
+            seenAccountIds.add(accId);
             const note = notesMap[accId]?.note || path.basename(file, '.json');
             const key = `codex_${path.basename(file, '.json')}`;
             tasks.push(
@@ -214,8 +215,8 @@ export async function queryAllLiveQuotas(forceRefresh = false): Promise<QuotaSta
                 .then((quota) => {
                   providers[key] = quota;
                 })
-                .catch((err) => {
-                  // If expired (401), we can ignore silently
+                .catch(() => {
+                  // Expired or unauthorized extra accounts can be ignored.
                 })
             );
           }
@@ -267,43 +268,20 @@ export async function queryAllLiveQuotas(forceRefresh = false): Promise<QuotaSta
   // Await all live queries
   await Promise.allSettled(tasks);
 
-  // If live query failed for any, fallback to cached reading
-  if (!providers['codex_primary']) {
-    try {
-      const fallbackFile = path.join(CONFIG.paths.piQuotaReadings, 'codex', 'latest.json');
-      if (fsSync.existsSync(fallbackFile)) {
-        const raw = JSON.parse(await fs.readFile(fallbackFile, 'utf8'));
-        const windows: QuotaWindow[] = [];
-        if (raw.fiveHour) windows.push({ ...raw.fiveHour, label: '5-Hour Limit' });
-        if (raw.weekly) windows.push({ ...raw.weekly, label: 'Weekly Limit' });
-        providers['codex_primary'] = {
-          provider: 'codex',
-          displayName: 'OpenAI Codex (Cached)',
-          plan: raw.plan,
-          capturedAt: raw.capturedAt || Date.now(),
-          status: 'ok',
-          windows,
+  try {
+    const fallback = await getLatestQuotaState();
+    for (const [key, quota] of Object.entries(fallback.providers)) {
+      const alreadyPresent = Object.values(providers).some((item) => {
+        return item.provider === quota.provider || item.displayName === quota.displayName;
+      });
+      if (!alreadyPresent && quota.status === 'ok') {
+        providers[key] = {
+          ...quota,
+          displayName: quota.displayName.includes('(Cached)') ? quota.displayName : `${quota.displayName} (Cached)`,
         };
       }
-    } catch {}
-  }
-
-  if (!providers['grok']) {
-    try {
-      const fallbackFile = path.join(CONFIG.paths.piQuotaReadings, 'grok', 'latest.json');
-      if (fsSync.existsSync(fallbackFile)) {
-        const raw = JSON.parse(await fs.readFile(fallbackFile, 'utf8'));
-        providers['grok'] = {
-          provider: 'grok',
-          displayName: 'xAI Grok (Cached)',
-          plan: raw.plan,
-          capturedAt: raw.capturedAt || Date.now(),
-          status: 'ok',
-          windows: raw.windows || [],
-        };
-      }
-    } catch {}
-  }
+    }
+  } catch {}
 
   const result: QuotaState = {
     updatedAt: Date.now(),
