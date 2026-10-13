@@ -17,7 +17,7 @@ app.use(express.json());
 
 // Initialize usage store on server launch
 usageStore.sync().then(count => {
-  console.log(`[UsageStore] Synced ${count} token usage records from local ledgers.`);
+  console.log(`[UsageStore] Synced ${count} token usage records from local clients (pi, codex, grokbuild).`);
 }).catch(err => {
   console.error('[UsageStore] Initial sync failed:', err);
 });
@@ -68,6 +68,12 @@ app.get('/api/usage/by-model', (req, res) => {
 app.get('/api/usage/by-provider', (req, res) => {
   const range = (req.query.range as UsageRange) || '7d';
   const data = usageStore.getByProvider(range);
+  res.json({ range, data });
+});
+
+app.get('/api/usage/by-client', (req, res) => {
+  const range = (req.query.range as UsageRange) || '7d';
+  const data = usageStore.getByClient(range);
   res.json({ range, data });
 });
 

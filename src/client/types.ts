@@ -60,6 +60,7 @@ export interface GroupedUsage {
 export interface TokenUsageRecord {
   id?: string;
   timestamp: number;
+  client?: string; // 'codex' | 'pi' | 'grokbuild' | 'claude' | 'gemini' | ...
   provider: string;
   model: string;
   input: number;

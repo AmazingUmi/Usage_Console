@@ -33,6 +33,7 @@ export const RecentRecordsTable: React.FC<RecentRecordsTableProps> = ({ records 
           <thead>
             <tr className="border-b border-white/10 text-slate-400">
               <th className="py-2 px-3 font-medium">调用时间</th>
+              <th className="py-2 px-3 font-medium">软件</th>
               <th className="py-2 px-3 font-medium">渠道</th>
               <th className="py-2 px-3 font-medium">模型</th>
               <th className="py-2 px-3 font-medium">输入 Token</th>
@@ -47,6 +48,11 @@ export const RecentRecordsTable: React.FC<RecentRecordsTableProps> = ({ records 
               <tr key={idx} className="hover:bg-white/[0.03] transition">
                 <td className="py-2.5 px-3 text-slate-400 whitespace-nowrap font-mono text-[11px]">
                   {formatDateTime(r.timestamp)}
+                </td>
+                <td className="py-2.5 px-3">
+                  <span className="px-2 py-0.5 rounded-full bg-blue-500/15 text-blue-300 border border-blue-500/25 text-[10px] font-mono font-medium">
+                    {r.client || 'unknown'}
+                  </span>
                 </td>
                 <td className="py-2.5 px-3">
                   <span className="px-2 py-0.5 rounded-full bg-slate-800/80 text-slate-300 border border-white/10 text-[10px] font-mono">
@@ -80,7 +86,7 @@ export const RecentRecordsTable: React.FC<RecentRecordsTableProps> = ({ records 
             ))}
             {records.length === 0 && (
               <tr>
-                <td colSpan={8} className="py-6 text-center text-slate-400">
+                <td colSpan={9} className="py-6 text-center text-slate-400">
                   暂无调用记录
                 </td>
               </tr>

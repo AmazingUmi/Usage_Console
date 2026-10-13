@@ -41,6 +41,13 @@ export async function fetchByProvider(range: UsageRange): Promise<GroupedUsage[]
   return data.data;
 }
 
+export async function fetchByClient(range: UsageRange): Promise<GroupedUsage[]> {
+  const res = await fetch(`${API_BASE}/usage/by-client?range=${range}`);
+  if (!res.ok) throw new Error('Failed to fetch client breakdown');
+  const data = await res.json();
+  return data.data;
+}
+
 export async function fetchRecentRecords(limit = 30): Promise<TokenUsageRecord[]> {
   const res = await fetch(`${API_BASE}/usage/records?limit=${limit}`);
   if (!res.ok) throw new Error('Failed to fetch records');

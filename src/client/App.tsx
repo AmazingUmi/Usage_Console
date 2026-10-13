@@ -12,6 +12,7 @@ import {
   fetchTrend,
   fetchByModel,
   fetchByProvider,
+  fetchByClient,
   fetchRecentRecords,
   syncUsage,
 } from './api';
@@ -31,6 +32,7 @@ export const App: React.FC = () => {
   const [trend, setTrend] = useState<DailyTrendPoint[]>([]);
   const [models, setModels] = useState<GroupedUsage[]>([]);
   const [providers, setProviders] = useState<GroupedUsage[]>([]);
+  const [clients, setClients] = useState<GroupedUsage[]>([]);
   const [records, setRecords] = useState<TokenUsageRecord[]>([]);
   const [range, setRange] = useState<UsageRange>('today');
   const [isRefreshing, setIsRefreshing] = useState<boolean>(false);
@@ -39,12 +41,13 @@ export const App: React.FC = () => {
   const loadData = useCallback(async (currentRange: UsageRange) => {
     try {
       setError(null);
-      const [quotaData, summaryRes, trendData, modelData, providerData, recordsData] = await Promise.all([
+      const [quotaData, summaryRes, trendData, modelData, providerData, clientData, recordsData] = await Promise.all([
         fetchQuota(),
         fetchSummary(currentRange),
         fetchTrend(14),
         fetchByModel(currentRange),
         fetchByProvider(currentRange),
+        fetchByClient(currentRange),
         fetchRecentRecords(30),
       ]);
 
@@ -53,6 +56,7 @@ export const App: React.FC = () => {
       setTrend(trendData);
       setModels(modelData);
       setProviders(providerData);
+      setClients(clientData);
       setRecords(recordsData);
     } catch (err) {
       console.error('Failed to load usage data:', err);
@@ -132,7 +136,7 @@ export const App: React.FC = () => {
         {/* Section 3: Trend & Breakdown Grid */}
         <section id="breakdown-section" className="grid grid-cols-1 lg:grid-cols-2 gap-6">
           <UsageTrend trend={trend} />
-          <BreakdownTable models={models} providers={providers} />
+          <BreakdownTable models={models} providers={providers} clients={clients} />
         </section>
 
         {/* Section 4: Recent Records */}
