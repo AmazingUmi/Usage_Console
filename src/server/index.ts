@@ -11,7 +11,7 @@ import { queryAllLiveQuotas, quotaAgeMs } from './quota/oauth.js';
 import { usageStore } from './usage/store.js';
 import type { UsageRange } from './usage/types.js';
 import { calibrateData } from './data/calibrate.js';
-import { copyDataIfMissing, loadAccounts, removeAccount, updateAccount, upsertAccounts } from './data/library.js';
+import { copyDataIfMissing, loadAccounts, removeAccount, reorderAccounts, updateAccount, upsertAccounts } from './data/library.js';
 import { hasCredential, removeCredential, saveCredential } from './identity/credentials.js';
 import type { CredentialProvider } from './identity/credentials.js';
 import type { LoginResult } from './identity/login.js';
@@ -249,6 +249,12 @@ app.post('/api/accounts/agy', async (_req, res) => {
   }
   upsertAccounts([{ type: 'agy', userId: 'agy-local', source: 'scan' }]);
   queryAllLiveQuotas(true).catch(() => {});
+  res.json({ settings: publicSettings() });
+});
+
+app.put('/api/accounts/order', (req, res) => {
+  const ids = Array.isArray(req.body?.ids) ? req.body.ids.filter((id: unknown): id is string => typeof id === 'string') : [];
+  reorderAccounts(ids);
   res.json({ settings: publicSettings() });
 });
 

@@ -50,3 +50,12 @@ export function formatCompactDuration(ms: number): string {
   if (hours > 0) return minutes > 0 ? `${hours}h${minutes}m` : `${hours}h`;
   return `${minutes}m`;
 }
+
+/** Age as one short unit (`5m`, `2h`, `3d`); null when it is under a minute. */
+export function formatAgeShort(ms: number): string | null {
+  const minutes = Math.floor(ms / 60000);
+  if (!Number.isFinite(minutes) || minutes < 1) return null;
+  if (minutes < 60) return `${minutes}m`;
+  const hours = Math.floor(minutes / 60);
+  return hours < 24 ? `${hours}h` : `${Math.floor(hours / 24)}d`;
+}

@@ -163,6 +163,17 @@ export function updateAccount(id: string, patch: { label?: string; notes?: strin
   return account;
 }
 
+/** The account list order is the card order. Ids not mentioned keep their relative order after the listed ones. */
+export function reorderAccounts(ids: string[]): ManagedAccount[] {
+  const accounts = loadAccounts();
+  const rank = new Map(ids.map((id, index) => [id, index]));
+  const sorted = accounts
+    .map((account, index) => ({ account, index }))
+    .sort((a, b) => (rank.get(a.account.id) ?? Infinity) - (rank.get(b.account.id) ?? Infinity) || a.index - b.index)
+    .map((item) => item.account);
+  return saveAccounts(sorted);
+}
+
 export function removeAccount(id: string): boolean {
   const accounts = loadAccounts();
   const next = accounts.filter((item) => item.id !== id);

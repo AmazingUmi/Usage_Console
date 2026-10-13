@@ -1,13 +1,13 @@
 /* ===== Settings ===== */
 .settings-toggle { display: inline-flex; align-items: center; gap: 8px; padding: 0; border: 0; background: none; color: var(--text); cursor: pointer; }
-.settings-toggle h2 { font-size: 21px; }
+.settings-toggle h2 { font-size: 18px; }
 .settings-toggle .icon { color: var(--muted); transition: rotate .2s var(--ease); }
 .settings-toggle[aria-expanded="true"] .icon { rotate: 90deg; }
 
 .settings-grid { display: grid; grid-template-columns: minmax(0, 1fr); gap: 14px; }
 .settings-grid .span-2 { grid-column: 1 / -1; }
-.settings-card .panel-head { border-bottom: 0; padding-bottom: 4px; }
-.settings-card .panel-body { display: flex; flex-direction: column; gap: 14px; padding: 16px 22px 22px; }
+.settings-card .panel-head { border-bottom: 0; padding-bottom: 2px; }
+.settings-card .panel-body { display: flex; flex-direction: column; gap: 12px; padding: 8px 16px 16px; }
 
 .kv { display: grid; grid-template-columns: max-content minmax(0, 1fr); gap: 6px 16px; font-size: 13px; }
 .kv dt { color: var(--muted); }
@@ -94,7 +94,7 @@
 .block-grid.wide { grid-template-columns: repeat(auto-fill, minmax(380px, 1fr)); }
 .block-reset { align-self: flex-end; }
 .block {
-  display: flex; flex-direction: column; gap: 10px; min-width: 0; padding: 14px 16px;
+  display: flex; flex-direction: column; gap: 8px; min-width: 0; padding: 12px 14px;
   border: 1px solid var(--tile-edge); border-radius: var(--r-inner); background: var(--fill-inset);
 }
 .block.span-all, .block-empty { grid-column: 1 / -1; }

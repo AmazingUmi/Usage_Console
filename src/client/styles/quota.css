@@ -1,5 +1,5 @@
 /* ===== Provider quota cards & battery gauges ===== */
-.provider-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(290px, 1fr)); gap: 16px; align-items: stretch; }
+.provider-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(290px, 1fr)); gap: 12px; align-items: stretch; }
 
 .panel.provider-card {
   --pc: var(--muted);
@@ -7,7 +7,35 @@
   background: linear-gradient(155deg, color-mix(in srgb, var(--pc) 13%, transparent), transparent 60%), var(--tile);
 }
 
-.provider-heading { display: flex; align-items: flex-start; gap: 11px; padding: 18px 18px 6px; }
+.provider-heading { display: flex; align-items: flex-start; gap: 10px; padding: 14px 14px 4px 16px; }
+.card-tools { display: flex; align-items: center; gap: 6px; margin-top: 0; }
+
+/* Card tools: three identical circles (reading age, edit, status). */
+.tool-circle {
+  position: relative; display: grid; place-items: center; flex: none; width: 28px; height: 28px; padding: 0;
+  border: 1px solid var(--stroke); border-radius: 50%; background: var(--fill-2); color: var(--muted);
+  box-shadow: inset 0 1px 0 var(--hairline), 0 0 0 .5px var(--edge);
+  font: inherit; line-height: 1;
+}
+button.tool-circle { cursor: pointer; transition: background-color .18s var(--ease), color .18s var(--ease), transform .18s var(--ease); }
+button.tool-circle:hover { background: var(--fill-3); color: var(--text); }
+button.tool-circle:active { transform: scale(.92); }
+
+/* Age circle: the ring drains as the reading gets old; the centre says how old in one short unit. */
+.age-circle { --ring: var(--good); color: var(--text-2); }
+.age-circle[data-tone="aging"] { --ring: var(--warning); }
+.age-circle[data-tone="old"] { --ring: var(--faint); }
+.age-ring { position: absolute; inset: -1px; width: calc(100% + 2px); height: calc(100% + 2px); rotate: -90deg; }
+.age-track, .age-arc { fill: none; stroke-width: 2; }
+.age-track { stroke: color-mix(in srgb, var(--ring) 18%, transparent); }
+.age-arc { stroke: var(--ring); stroke-linecap: round; transition: stroke-dasharray .6s var(--ease), stroke .3s var(--ease); }
+.age-text { position: relative; font-size: 9.5px; font-weight: 700; letter-spacing: -.01em; font-variant-numeric: tabular-nums; }
+
+/* Reordering */
+.provider-icon.is-grip { padding: 0; border: 0; cursor: grab; font: inherit; font-size: 15px; font-weight: 750; }
+.provider-icon.is-grip:active { cursor: grabbing; }
+.panel.provider-card[data-dragging] { opacity: .45; }
+.panel.provider-card[data-drop-target] { outline: 2px dashed var(--accent); outline-offset: 3px; }
 .provider-icon {
   display: grid; place-items: center; flex: none; width: 34px; height: 34px; border-radius: 11px;
   background: color-mix(in srgb, var(--pc) 18%, var(--fill-2)); color: var(--pc);
@@ -18,7 +46,7 @@
 .provider-title p { margin-top: 1px; overflow: hidden; color: var(--muted); font-size: 12px; text-overflow: ellipsis; white-space: nowrap; }
 
 .status-dot {
-  --dot: var(--muted); flex: none; width: 9px; height: 9px; margin: 7px 2px 0 0; border-radius: 50%;
+  --dot: var(--muted); display: block; flex: none; width: 9px; height: 9px; border-radius: 50%;
   background: var(--dot); box-shadow: 0 0 0 3px color-mix(in srgb, var(--dot) 22%, transparent);
 }
 .status-dot[data-status="ok"] { --dot: var(--good); animation: breathe 2.8s ease-in-out infinite; }
@@ -29,7 +57,7 @@
 .gauge[data-stale="true"] { opacity: .5; filter: saturate(.5); }
 @media (prefers-reduced-motion: reduce) { .status-dot { animation: none !important; } }
 
-.quota-body { flex: 1; display: flex; flex-direction: column; justify-content: center; gap: 14px; padding: 10px 18px 16px; }
+.quota-body { flex: 1; display: flex; flex-direction: column; justify-content: center; gap: 12px; padding: 4px 16px 14px; }
 
 .gauge { display: grid; grid-template-columns: repeat(var(--cols, 2), minmax(0, 1fr)); gap: 18px 8px; justify-items: center; align-items: start; }
 
@@ -91,11 +119,6 @@
 .gauge-row[data-level="warning"] .gauge-reset,
 .gauge-row[data-level="low"] .gauge-reset { color: var(--text); background: color-mix(in srgb, var(--fill) 14%, var(--fill-2)); }
 
-.provider-foot {
-  display: flex; align-items: center; justify-content: space-between; gap: 10px;
-  margin: 0 18px; padding: 11px 0 14px; border-top: 1px solid var(--edge);
-  color: var(--muted); font-size: 11.5px;
-}
 
 .quota-empty { display: grid; gap: 10px; place-items: center; padding: 30px 20px; color: var(--muted); text-align: center; }
 .quota-actions { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }

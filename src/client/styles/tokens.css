@@ -90,10 +90,10 @@
    * Recommended module sizes (wide layout). Content that changes with a tab, range or dimension scrolls inside a
    * fixed area, and each module has a floor, so switching never makes the page jump.
    */
-  --h-quota: 440px;
-  --h-usage: 700px;
-  --h-detail: 520px;
-  --h-card: 330px;
+  --h-quota: 355px;
+  --h-usage: 640px;
+  --h-detail: 480px;
+  --h-card: 275px;
   --breakdown-h: 330px;
   --detail-table-h: 400px;
 }

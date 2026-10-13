@@ -108,6 +108,15 @@ export async function deleteAccount(id: string): Promise<{ settings: ConsoleSett
   return readJson(res, 'Could not remove the account');
 }
 
+export async function reorderAccounts(ids: string[]): Promise<{ settings: ConsoleSettings }> {
+  const res = await apiFetch(`${API_BASE}/accounts/order`, {
+    method: 'PUT',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ ids }),
+  });
+  return readJson(res, 'Could not save the card order');
+}
+
 export type DeviceLoginType = 'gpt' | 'grok';
 
 const DEVICE_LABEL: Record<DeviceLoginType, string> = { gpt: 'GPT', grok: 'Grok' };

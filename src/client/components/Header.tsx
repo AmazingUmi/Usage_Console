@@ -64,6 +64,9 @@ export const Header: React.FC<HeaderProps> = ({
   const { t, locale } = useI18n();
   const { pref, setPref } = useTheme();
   const statusLabel = t(`conn.${connectionState}`);
+  const statusTitle = lastUpdated
+    ? `${statusLabel} · ${t('header.updated', { time: new Date(lastUpdated).toLocaleTimeString(locale) })}`
+    : statusLabel;
 
   return (
     <header className="app-header">
@@ -91,32 +94,28 @@ export const Header: React.FC<HeaderProps> = ({
           ))}
         </nav>
         <div className="header-meta">
+          <span className="header-circle" role="status" aria-label={statusLabel} title={statusTitle}>
+            <i className="connection-status" data-state={connectionState} />
+          </span>
           <button
             type="button"
-            className="theme-button"
+            className="header-circle"
             aria-label={t('theme.toggle', { mode: t(`theme.${pref}`) })}
             title={t('theme.toggle', { mode: t(`theme.${pref}`) })}
             onClick={() => setPref(THEME_NEXT[pref])}
           >
             <Icon name={THEME_ICON[pref]} size={16} />
           </button>
-          <span
-            className="connection-status"
-            data-state={connectionState}
-            role="status"
-            aria-label={statusLabel}
-            title={statusLabel}
-          />
-          {lastUpdated && <span className="updated">{t('header.updated', { time: new Date(lastUpdated).toLocaleTimeString(locale) })}</span>}
           <button
             type="button"
-            className="btn"
+            className="header-circle"
             onClick={onRefresh}
             disabled={isRefreshing}
             aria-busy={isRefreshing}
+            aria-label={isRefreshing ? t('header.refreshing') : t('header.refresh')}
+            title={isRefreshing ? t('header.refreshing') : t('header.refresh')}
           >
-            <Icon name="refresh" size={14} className={isRefreshing ? 'is-spinning' : undefined} />
-            {isRefreshing ? t('header.refreshing') : t('header.refresh')}
+            <Icon name="refresh" size={16} className={isRefreshing ? 'is-spinning' : undefined} />
           </button>
         </div>
       </div>

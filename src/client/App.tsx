@@ -7,7 +7,7 @@ import { SettingsPage } from './components/SettingsPage';
 import { EditAccountDialog } from './components/EditAccountDialog';
 import { AddAccountDialog } from './components/AddAccountDialog';
 import { useI18n } from './i18n';
-import { fetchQuota, refreshQuota, fetchUsageOverview, fetchSettings, syncUsage, trendDaysFor } from './api';
+import { fetchQuota, refreshQuota, fetchUsageOverview, fetchSettings, reorderAccounts, syncUsage, trendDaysFor } from './api';
 import { quotaCardsForAccounts } from './lib/providers';
 import { HelpTip } from './components/HelpTip';
 import { Icon } from './components/Icon';
@@ -62,6 +62,9 @@ export const App: React.FC = () => {
   const [editingQuota, setEditingQuota] = useState<import('./types').ProviderQuota | null>(null);
   /** Non-null while the add-account dialog is open; `type` pre-selects the account type. */
   const [addAccount, setAddAccount] = useState<{ type?: AccountType } | null>(null);
+  /** Card being dragged, and the card it is currently over. */
+  const [dragId, setDragId] = useState<string | null>(null);
+  const [overId, setOverId] = useState<string | null>(null);
 
   const applyUsageOverview = useCallback((data: Awaited<ReturnType<typeof fetchUsageOverview>>) => {
     setSummary(data.summary);
@@ -155,6 +158,30 @@ export const App: React.FC = () => {
     }
   };
 
+  /** Moves account `fromId` to the position of `toId`, shows it at once, then saves; a failure restores the saved order. */
+  const moveCard = useCallback(async (fromId: string, toId: string) => {
+    if (!settings || fromId === toId) return;
+    const ids = settings.accounts.map((account) => account.id);
+    const from = ids.indexOf(fromId);
+    const to = ids.indexOf(toId);
+    if (from < 0 || to < 0) return;
+    ids.splice(to, 0, ids.splice(from, 1)[0]);
+    setSettings({ ...settings, accounts: ids.map((id) => settings.accounts.find((account) => account.id === id)!) });
+    try {
+      setSettings((await reorderAccounts(ids)).settings);
+    } catch (err) {
+      console.error('Failed to save card order:', err);
+      fetchSettings().then(setSettings).catch(() => {});
+    }
+  }, [settings]);
+
+  const moveCardBy = useCallback((id: string, delta: -1 | 1) => {
+    if (!settings) return;
+    const ids = settings.accounts.map((account) => account.id);
+    const target = ids[ids.indexOf(id) + delta];
+    if (target) void moveCard(id, target);
+  }, [settings, moveCard]);
+
   const providerList = useMemo(() => {
     const live = quotaState?.providers ? Object.values(quotaState.providers) : [];
     return quotaCardsForAccounts(live, settings?.accounts ?? [], {
@@ -216,11 +243,11 @@ export const App: React.FC = () => {
               <HelpTip text={t('quota.hint')} />
             </div>
             <div className="quota-actions">
-              <button type="button" className="btn btn-sm btn-primary" onClick={() => setAddAccount({})}>
-                <Icon name="plus" size={13} />{t('quota.add')}
+              <button type="button" className="circle-btn primary" aria-label={t('quota.add')} title={t('quota.add')} onClick={() => setAddAccount({})}>
+                <Icon name="plus" size={16} />
               </button>
-              <button type="button" className="btn btn-sm" onClick={() => openSettings('account-settings-title')}>
-                <Icon name="settings" size={13} />{t('quota.manage')}
+              <button type="button" className="circle-btn" aria-label={t('quota.manage')} title={t('quota.manage')} onClick={() => openSettings('account-settings-title')}>
+                <Icon name="settings" size={16} />
               </button>
             </div>
           </div>
@@ -234,8 +261,21 @@ export const App: React.FC = () => {
             <div className="provider-grid">
               {providerList.map((quota, index) => (
                 <QuotaCard
-                  key={`${quota.accountCardId || quota.provider}-${index}`}
+                  key={quota.accountCardId || `${quota.provider}-${index}`}
                   quota={quota}
+                  reorder={quota.accountCardId && providerList.length > 1 ? {
+                    dragging: dragId === quota.accountCardId,
+                    dropTarget: Boolean(dragId) && overId === quota.accountCardId && dragId !== quota.accountCardId,
+                    onDragStart: () => setDragId(quota.accountCardId!),
+                    onDragOver: () => setOverId(quota.accountCardId!),
+                    onDrop: () => {
+                      if (dragId) void moveCard(dragId, quota.accountCardId!);
+                      setDragId(null);
+                      setOverId(null);
+                    },
+                    onDragEnd: () => { setDragId(null); setOverId(null); },
+                    onMove: (delta) => moveCardBy(quota.accountCardId!, delta),
+                  } : undefined}
                   includeAgyClaude={!hideAgyClaude}
                   thresholds={thresholds}
                   onEdit={setEditingQuota}
