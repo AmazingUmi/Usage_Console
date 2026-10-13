@@ -1,99 +1,126 @@
 /*
- * Design tokens. Raw colours, radii and shadows live here and nowhere else.
- * Flat surfaces: page background → card surface → inset surface, separated by 1px borders.
+ * Design tokens — iOS frosted glass.
+ *
+ * Glass is three fill levels over one mesh-gradient canvas:
+ *   --fill-1  cards and the header capsule   (most transparent, blurred)
+ *   --fill-2  chips, buttons, segmented thumb (sits on a card, no extra blur)
+ *   --fill-3  popovers, tooltips, modals      (most opaque, blurred)
  */
 :root {
   color-scheme: light;
-  --font: "Inter", -apple-system, BlinkMacSystemFont, "Segoe UI", "PingFang SC", "Microsoft YaHei", "Noto Sans CJK SC", sans-serif;
-  --mono: ui-monospace, "SF Mono", "JetBrains Mono", Menlo, Consolas, monospace;
+  --font: -apple-system, BlinkMacSystemFont, "SF Pro Text", "PingFang SC", "Microsoft YaHei", "Noto Sans CJK SC", sans-serif;
+  --mono: ui-monospace, "SF Mono", Menlo, Consolas, monospace;
 
-  --bg: #f4f5f7;
-  --surface: #ffffff;
-  --surface-2: #f8f9fb;
-  --hover: #f1f3f6;
-  --border: #e5e7eb;
-  --border-strong: #d1d5db;
-  --track: #eceef2;
+  /* canvas */
+  --bg: #edf0f6;
+  --mesh-a: #cfe3f2;
+  --mesh-b: #dcd6f4;
+  --mesh-c: #c8ece6;
 
-  --text: #111827;
-  --text-2: #374151;
-  --muted: #6b7280;
-  --faint: #9ca3af;
+  /* glass */
+  --fill-1: rgb(255 255 255 / 55%);
+  --fill-2: rgb(255 255 255 / 72%);
+  --fill-3: rgb(255 255 255 / 90%);
+  --fill-inset: rgb(120 140 170 / 12%);
+  --hairline: rgb(255 255 255 / 85%);
+  --stroke: rgb(255 255 255 / 65%);
+  --edge: rgb(90 110 150 / 18%);
+  --blur: blur(28px) saturate(180%);
+  --blur-pop: blur(36px) saturate(190%);
+  --shadow-card: 0 8px 30px rgb(40 60 110 / 10%), 0 1px 2px rgb(40 60 110 / 8%);
+  --shadow-pop: 0 18px 48px rgb(20 30 60 / 22%);
+  --shadow-thumb: 0 1px 4px rgb(20 40 90 / 16%), 0 0 0 .5px rgb(20 40 90 / 6%);
 
-  --accent: #2563eb;
-  --accent-hover: #1d4ed8;
-  --accent-soft: #eff4ff;
+  /* semantic aliases used by components */
+  --surface: var(--fill-1);
+  --surface-2: var(--fill-inset);
+  --hover: rgb(120 140 170 / 14%);
+  --border: var(--edge);
+  --border-strong: rgb(90 110 150 / 28%);
+  --track: rgb(120 140 170 / 18%);
+  --solid: #ffffff;
+
+  --text: #141a26;
+  --text-2: #2c3546;
+  --muted: #5a6578;
+  --faint: #8792a5;
+
+  --accent: #0a84ff;
+  --accent-hi: #4aa8ff;
+  --accent-hover: #0071e3;
+  --accent-soft: rgb(10 132 255 / 12%);
   --accent-contrast: #ffffff;
 
-  /* status — reserved, always paired with a label */
-  --good: #16a34a;
-  --good-soft: #ecfdf3;
-  --warning: #d97706;
-  --warning-soft: #fff7e6;
-  --danger: #dc2626;
-  --danger-soft: #fef2f2;
+  /* status — iOS system colours, always paired with a label */
+  --good: #28b44a;
+  --warning: #ff9500;
+  --danger: #ff3b30;
 
-  /* providers */
-  --p-codex: #0f9f7a;
+  /* providers: OpenAI green · Claude terracotta · Grok graphite · Antigravity azure */
+  --p-codex: #10a37f;
   --p-claude: #d97757;
-  --p-grok: #1f2937;
-  --p-agy: #4285f4;
+  --p-grok: #3a4150;
+  --p-agy: #2f7df4;
 
-  /* chart series (validated categorical order: blue, orange, aqua) */
+  /* chart series (validated categorical order: blue, orange) */
   --series-1: #2a78d6;
   --series-2: #eb6834;
-  --series-3: #1baf7a;
 
-  --shadow-sm: 0 1px 2px rgb(16 24 40 / 5%);
-  --shadow-pop: 0 12px 32px rgb(16 24 40 / 14%), 0 2px 6px rgb(16 24 40 / 6%);
-
-  --r-card: 14px;
-  --r-ctl: 8px;
+  --r-card: 26px;
+  --r-inner: 18px;
+  --r-ctl: 12px;
   --r-pill: 999px;
-  --ease: cubic-bezier(.2, .7, .2, 1);
-  --gutter: 28px;
+  --ease: cubic-bezier(.32, .72, 0, 1);
+  --gutter: 32px;
 }
 
 @media (prefers-color-scheme: dark) {
   :root {
     color-scheme: dark;
-    --bg: #0b0d11;
-    --surface: #13161c;
-    --surface-2: #181c23;
-    --hover: #1d222a;
-    --border: #252a33;
-    --border-strong: #343b46;
-    --track: #232832;
+    --bg: #090d14;
+    --mesh-a: #12394a;
+    --mesh-b: #2c2656;
+    --mesh-c: #0e3d3b;
 
-    --text: #e8ebf0;
-    --text-2: #c9ced8;
-    --muted: #9099a8;
-    --faint: #6b7483;
+    --fill-1: rgb(30 38 54 / 55%);
+    --fill-2: rgb(255 255 255 / 9%);
+    --fill-3: rgb(28 36 50 / 92%);
+    --fill-inset: rgb(255 255 255 / 6%);
+    --hairline: rgb(255 255 255 / 14%);
+    --stroke: rgb(255 255 255 / 10%);
+    --edge: rgb(255 255 255 / 11%);
+    --shadow-card: 0 8px 32px rgb(0 0 0 / 35%);
+    --shadow-pop: 0 18px 48px rgb(0 0 0 / 55%);
+    --shadow-thumb: 0 1px 4px rgb(0 0 0 / 40%);
 
-    --accent: #5b8def;
-    --accent-hover: #7aa4f3;
-    --accent-soft: rgb(91 141 239 / 14%);
-    --accent-contrast: #0b0d11;
+    --hover: rgb(255 255 255 / 9%);
+    --border-strong: rgb(255 255 255 / 18%);
+    --track: rgb(255 255 255 / 10%);
+    --solid: #1b2331;
 
-    --good: #3ccb7f;
-    --good-soft: rgb(60 203 127 / 12%);
-    --warning: #f0a93b;
-    --warning-soft: rgb(240 169 59 / 12%);
-    --danger: #f26b6b;
-    --danger-soft: rgb(242 107 107 / 12%);
+    --text: #eef2f8;
+    --text-2: #cdd4df;
+    --muted: #9ba8bc;
+    --faint: #6f7b8f;
+
+    --accent: #0a84ff;
+    --accent-hi: #5eb1ff;
+    --accent-hover: #409cff;
+    --accent-soft: rgb(10 132 255 / 18%);
+
+    --good: #32d74b;
+    --warning: #ff9f0a;
+    --danger: #ff453a;
 
     --p-codex: #34c79e;
     --p-claude: #e8916f;
-    --p-grok: #d1d5db;
-    --p-agy: #6ea4ff;
+    --p-grok: #c9cfd9;
+    --p-agy: #6aa6ff;
 
     --series-1: #3987e5;
     --series-2: #d95926;
-    --series-3: #199e70;
-
-    --shadow-sm: 0 1px 2px rgb(0 0 0 / 30%);
-    --shadow-pop: 0 16px 40px rgb(0 0 0 / 55%);
   }
 }
 
-@media (max-width: 760px) { :root { --gutter: 16px; } }
+@media (max-width: 850px) { :root { --gutter: 20px; } }
+@media (max-width: 680px) { :root { --gutter: 14px; } }

@@ -9,18 +9,6 @@ interface QuotaCardProps {
   onEdit?: (quota: ProviderQuota) => void;
 }
 
-function formatCountdown(resetAt?: number): string {
-  if (!resetAt) return '';
-  const diff = resetAt - Date.now();
-  if (diff <= 0) return '即将重置';
-  const minutes = Math.floor(diff / 60000);
-  const hours = Math.floor(minutes / 60);
-  const days = Math.floor(hours / 24);
-  if (days > 0) return `${days} 天 ${hours % 24} 小时后重置`;
-  if (hours > 0) return `${hours} 小时 ${minutes % 60} 分后重置`;
-  return `${Math.max(1, minutes)} 分钟后重置`;
-}
-
 function providerVisuals(provider: string) {
   const p = provider.toLowerCase();
   if (p.includes('codex') || p.includes('openai')) return { pc: 'var(--p-codex)', icon: 'O' };
@@ -43,32 +31,37 @@ const STATUS: Record<ProviderQuota['status'], { label: string; tone: string }> =
   unconfigured: { label: '未连接', tone: 'muted' },
 };
 
-const Meter: React.FC<{ window: QuotaWindow }> = ({ window: win }) => {
+function shortCountdown(resetAt?: number): string {
+  if (!resetAt) return '';
+  const diff = resetAt - Date.now();
+  if (diff <= 0) return '即将重置';
+  const minutes = Math.floor(diff / 60000);
+  const hours = Math.floor(minutes / 60);
+  const days = Math.floor(hours / 24);
+  if (days > 0) return `${days}天${hours % 24}小时`;
+  if (hours > 0) return `${hours}小时${minutes % 60}分`;
+  return `${Math.max(1, minutes)}分钟`;
+}
+
+const Battery: React.FC<{ window: QuotaWindow }> = ({ window: win }) => {
   const known = Number.isFinite(win.remainingPercent);
   const percent = known ? Math.min(100, Math.max(0, win.remainingPercent)) : 0;
   const level = !known ? 'unknown' : percent <= 20 ? 'low' : percent <= 50 ? 'warning' : 'normal';
   const label = niceWindowLabel(win.label);
+  const countdown = shortCountdown(win.resetAt);
   return (
-    <div className="meter" data-level={level}>
-      <div className="meter-head">
-        <span className="meter-label">{label}</span>
-        <span className="meter-value">{known ? Math.round(percent) : '—'}{known && <small>% 剩余</small>}</span>
+    <div className="gauge-row" data-level={level} style={{ '--v': percent } as React.CSSProperties}>
+      <span className="gauge-label" title={label}>{label}</span>
+      <div className="battery-stage">
+        <div className="battery" role="img" aria-label={`${label} 剩余 ${known ? `${Math.round(percent)}%` : '未知'}`}>
+          <i className="battery-fill" style={{ height: `${percent}%` }} />
+        </div>
       </div>
-      <div
-        className="meter-track"
-        role="meter"
-        aria-label={`${label} 剩余`}
-        aria-valuemin={0}
-        aria-valuemax={100}
-        aria-valuenow={known ? Math.round(percent) : undefined}
-      >
-        <span className="meter-fill" style={{ width: `${percent}%` }} />
-      </div>
-      <div className="meter-foot">
-        <span title={win.resetAt ? new Date(win.resetAt).toLocaleString() : undefined}>
-          {formatCountdown(win.resetAt) || '周期重置'}
-        </span>
-      </div>
+      <span className="gauge-val">{known ? Math.round(percent) : '—'}{known && <small>%</small>}</span>
+      <span className="gauge-reset" title={win.resetAt ? `重置于 ${new Date(win.resetAt).toLocaleString()}` : undefined}>
+        <Icon name="refresh" size={10} />
+        {countdown || '周期重置'}
+      </span>
     </div>
   );
 };
@@ -99,7 +92,15 @@ export const QuotaCard: React.FC<QuotaCardProps> = ({ quota, includeAgyClaude = 
             <span>{quota.errorMessage}</span>
           </div>
         )}
-        {windows.map((win, idx) => <Meter key={`${win.label}-${idx}`} window={win} />)}
+        {windows.length > 0 && (
+          <div
+            className="gauge"
+            data-count={windows.length}
+            style={{ '--cols': windows.length === 4 ? 2 : Math.min(windows.length, 3) } as React.CSSProperties}
+          >
+            {windows.map((win, idx) => <Battery key={`${win.label}-${idx}`} window={win} />)}
+          </div>
+        )}
         {windows.length === 0 && !quota.errorMessage && <p className="hint">暂无额度窗口数据</p>}
       </div>
 

@@ -1,38 +1,46 @@
-/* ===== App frame ===== */
+/* ===== App frame: floating glass capsule header ===== */
 .app-header {
-  position: sticky; top: 0; z-index: 20;
-  border-bottom: 1px solid var(--border);
-  background: color-mix(in srgb, var(--bg) 86%, transparent);
-  -webkit-backdrop-filter: saturate(180%) blur(12px); backdrop-filter: saturate(180%) blur(12px);
+  position: sticky; top: 12px; z-index: 20;
+  width: calc(100% - 2 * var(--gutter)); max-width: 1176px; margin: 14px auto 0;
+  border: 1px solid var(--stroke); border-radius: 30px;
+  background: var(--fill-1);
+  box-shadow: inset 0 1px 0 var(--hairline), 0 0 0 .5px var(--edge), var(--shadow-card);
+  -webkit-backdrop-filter: var(--blur); backdrop-filter: var(--blur);
 }
-.header-inner {
-  display: flex; align-items: center; gap: 20px;
-  max-width: 1240px; height: 58px; margin: 0 auto; padding: 0 var(--gutter);
+.header-inner { display: flex; align-items: center; gap: 14px; height: 58px; padding: 0 10px 0 12px; }
+.brand { display: inline-flex; align-items: center; gap: 10px; color: var(--text); font-size: 15.5px; font-weight: 700; letter-spacing: -.01em; text-decoration: none; white-space: nowrap; }
+.brand-mark {
+  display: grid; place-items: center; width: 34px; height: 34px; border-radius: 11px;
+  background: linear-gradient(160deg, var(--accent-hi), var(--accent)); color: #fff;
+  box-shadow: inset 0 1px 0 rgb(255 255 255 / 40%), 0 2px 8px color-mix(in srgb, var(--accent) 35%, transparent);
 }
-.brand { display: inline-flex; align-items: center; gap: 10px; color: var(--text); font-size: 15px; font-weight: 650; letter-spacing: -.01em; text-decoration: none; white-space: nowrap; }
-.brand-mark { display: grid; place-items: center; width: 28px; height: 28px; border-radius: 8px; background: var(--text); color: var(--bg); }
-.main-nav { display: flex; gap: 2px; margin-right: auto; }
+.main-nav { display: inline-flex; gap: 2px; margin-right: auto; padding: 3px; border-radius: var(--r-pill); background: var(--fill-inset); }
 .main-nav a, .main-nav button {
-  height: 32px; padding: 0 12px; border: 0; border-radius: var(--r-ctl);
-  display: inline-flex; align-items: center;
+  display: inline-flex; align-items: center; height: 30px; padding: 0 16px; border: 0; border-radius: var(--r-pill);
   background: transparent; color: var(--muted); font-size: 13px; font-weight: 550; text-decoration: none; cursor: pointer;
+  transition: background-color .22s var(--ease), color .22s var(--ease), box-shadow .22s var(--ease);
 }
-.main-nav a:hover, .main-nav button:hover { background: var(--hover); color: var(--text); }
-.main-nav [aria-current] { color: var(--text); background: var(--hover); }
+.main-nav a:hover, .main-nav button:hover { color: var(--text); }
+.main-nav [aria-current] { background: var(--solid); color: var(--text); font-weight: 650; box-shadow: var(--shadow-thumb); }
 .header-meta { display: flex; align-items: center; gap: 10px; color: var(--muted); font-size: 12.5px; white-space: nowrap; }
 
-.connection-status { --dot: var(--good); width: 8px; height: 8px; border-radius: 50%; background: var(--dot); box-shadow: 0 0 0 3px color-mix(in srgb, var(--dot) 22%, transparent); }
+.connection-status {
+  --dot: var(--good);
+  width: 9px; height: 9px; border-radius: 50%; background: var(--dot);
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--dot) 25%, transparent);
+  animation: breathe 2.8s ease-in-out infinite;
+}
 .connection-status[data-state="connecting"] { --dot: var(--warning); }
-.connection-status[data-state="offline"] { --dot: var(--danger); }
+.connection-status[data-state="offline"] { --dot: var(--danger); animation: none; }
+@keyframes breathe { 50% { box-shadow: 0 0 0 6px color-mix(in srgb, var(--dot) 12%, transparent); } }
 
 .shell { max-width: 1240px; margin: 0 auto; padding: 24px var(--gutter) 24px; }
-
-.section { margin-top: 32px; }
+.section { margin-top: 36px; }
 .section:first-of-type { margin-top: 8px; }
-.section-heading { display: flex; align-items: flex-end; justify-content: space-between; gap: 16px; flex-wrap: wrap; margin-bottom: 12px; }
+.section-heading { display: flex; align-items: flex-end; justify-content: space-between; gap: 16px; flex-wrap: wrap; margin-bottom: 14px; }
 .section-heading .hint { margin-top: 2px; }
 
-.app-footer { max-width: 1240px; margin: 0 auto; padding: 16px var(--gutter) 40px; color: var(--faint); font-size: 12px; }
+.app-footer { max-width: 1240px; margin: 0 auto; padding: 16px var(--gutter) 44px; color: var(--muted); font-size: 12px; text-align: center; }
 
 @media (max-width: 760px) {
   .header-inner { gap: 10px; }
