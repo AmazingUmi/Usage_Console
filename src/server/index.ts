@@ -4,7 +4,7 @@ import path from 'node:path';
 import fs from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import { CONFIG } from './config.js';
-import { getLatestQuotaState } from './quota/scanner.js';
+import { queryAllLiveQuotas } from './quota/oauth.js';
 import { usageStore } from './usage/store.js';
 import type { UsageRange } from './usage/types.js';
 
@@ -15,12 +15,24 @@ const app = express();
 app.use(cors());
 app.use(express.json());
 
-// Initialize usage store on server launch
+// Initialize usage store and query quotas on server launch
 usageStore.sync().then(count => {
   console.log(`[UsageStore] Synced ${count} token usage records from local clients (pi, codex, grokbuild).`);
 }).catch(err => {
   console.error('[UsageStore] Initial sync failed:', err);
 });
+
+queryAllLiveQuotas().then(() => {
+  console.log('[Quota] Initial live OAuth quota check completed.');
+}).catch(err => {
+  console.warn('[Quota] Initial quota check warning:', err.message);
+});
+
+// Auto-sync usage & quota periodically (every 120s)
+setInterval(() => {
+  usageStore.sync().catch(() => {});
+  queryAllLiveQuotas(true).catch(() => {});
+}, 120 * 1000);
 
 // API Routes
 app.get('/api/health', (_req, res) => {
@@ -28,9 +40,10 @@ app.get('/api/health', (_req, res) => {
 });
 
 // Quota routes
-app.get('/api/quota', async (_req, res) => {
+app.get('/api/quota', async (req, res) => {
   try {
-    const quotaState = await getLatestQuotaState();
+    const force = req.query.force === 'true';
+    const quotaState = await queryAllLiveQuotas(force);
     res.json(quotaState);
   } catch (err) {
     res.status(500).json({ error: (err as Error).message });
@@ -39,7 +52,7 @@ app.get('/api/quota', async (_req, res) => {
 
 app.post('/api/quota/refresh', async (_req, res) => {
   try {
-    const quotaState = await getLatestQuotaState();
+    const quotaState = await queryAllLiveQuotas(true);
     res.json(quotaState);
   } catch (err) {
     res.status(500).json({ error: (err as Error).message });
