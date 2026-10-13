@@ -1,6 +1,8 @@
 import React, { useEffect, useState } from 'react';
 import type { ConnectionState } from '../types';
 import { useI18n } from '../i18n';
+import type { ThemePref } from '../theme';
+import { useTheme } from '../theme';
 import { Icon } from './Icon';
 
 interface HeaderProps {
@@ -18,6 +20,10 @@ const NAV_ITEMS = [
   { id: 'usage-title', key: 'nav.detail' },
   { id: 'settings-title', key: 'nav.settings' },
 ] as const;
+
+/** One button cycles system -> light -> dark; the icon shows the current choice. */
+const THEME_ICON: Record<ThemePref, 'monitor' | 'sun' | 'moon'> = { system: 'monitor', light: 'sun', dark: 'moon' };
+const THEME_NEXT: Record<ThemePref, ThemePref> = { system: 'light', light: 'dark', dark: 'system' };
 
 /** Highlights the nav item of the section currently under the top of the viewport. */
 function useActiveSection(): string {
@@ -56,6 +62,7 @@ export const Header: React.FC<HeaderProps> = ({
 }) => {
   const active = useActiveSection();
   const { t, locale } = useI18n();
+  const { pref, setPref } = useTheme();
   const statusLabel = t(`conn.${connectionState}`);
 
   return (
@@ -84,6 +91,15 @@ export const Header: React.FC<HeaderProps> = ({
           ))}
         </nav>
         <div className="header-meta">
+          <button
+            type="button"
+            className="theme-button"
+            aria-label={t('theme.toggle', { mode: t(`theme.${pref}`) })}
+            title={t('theme.toggle', { mode: t(`theme.${pref}`) })}
+            onClick={() => setPref(THEME_NEXT[pref])}
+          >
+            <Icon name={THEME_ICON[pref]} size={16} />
+          </button>
           <span
             className="connection-status"
             data-state={connectionState}

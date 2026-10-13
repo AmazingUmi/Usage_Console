@@ -27,6 +27,17 @@
   --edge: rgb(90 110 150 / 18%);
   --blur: blur(28px) saturate(180%);
   --blur-pop: blur(36px) saturate(190%);
+  --blur-bar: blur(22px) saturate(210%);
+  /* liquid-glass highlights: a diagonal sheen across the surface and a bright lower rim */
+  --sheen: rgb(255 255 255 / 42%);
+  --sheen-soft: rgb(255 255 255 / 14%);
+  --rim: rgb(255 255 255 / 55%);
+
+  /* modules: one glass plate per page section, holding flat tiles (no blur inside a blurred plate) */
+  --shell: rgb(255 255 255 / 32%);
+  --tile: rgb(255 255 255 / 64%);
+  --tile-edge: rgb(90 110 150 / 14%);
+  --shadow-tile: 0 1px 3px rgb(30 50 90 / 8%);
   --shadow-card: 0 8px 30px rgb(40 60 110 / 10%), 0 1px 2px rgb(40 60 110 / 8%);
   --shadow-pop: 0 18px 48px rgb(20 30 60 / 22%);
   --shadow-thumb: 0 1px 4px rgb(20 40 90 / 16%), 0 0 0 .5px rgb(20 40 90 / 6%);
@@ -65,6 +76,8 @@
   /* chart series (validated categorical order: blue, orange) */
   --series-1: #2a78d6;
   --series-2: #eb6834;
+  --series-3: #8b5cf6;
+  --series-4: #22a45d;
 
   --r-card: 26px;
   --r-inner: 18px;
@@ -72,54 +85,74 @@
   --r-pill: 999px;
   --ease: cubic-bezier(.32, .72, 0, 1);
   --gutter: 32px;
+
+  /*
+   * Recommended module sizes (wide layout). Content that changes with a tab, range or dimension scrolls inside a
+   * fixed area, and each module has a floor, so switching never makes the page jump.
+   */
+  --h-quota: 440px;
+  --h-usage: 700px;
+  --h-detail: 520px;
+  --h-card: 330px;
+  --breakdown-h: 330px;
+  --detail-table-h: 400px;
 }
 
-@media (prefers-color-scheme: dark) {
-  :root {
-    color-scheme: dark;
-    --bg: #090d14;
-    --mesh-a: #12394a;
-    --mesh-b: #2c2656;
-    --mesh-c: #0e3d3b;
+/* Dark is chosen by data-theme on <html> (set from the user's choice or the system setting). */
+:root[data-theme="dark"] {
+  color-scheme: dark;
+  --bg: #090d14;
+  --mesh-a: #12394a;
+  --mesh-b: #2c2656;
+  --mesh-c: #0e3d3b;
 
-    --fill-1: rgb(30 38 54 / 55%);
-    --fill-2: rgb(255 255 255 / 9%);
-    --fill-3: rgb(28 36 50 / 92%);
-    --fill-inset: rgb(255 255 255 / 6%);
-    --hairline: rgb(255 255 255 / 14%);
-    --stroke: rgb(255 255 255 / 10%);
-    --edge: rgb(255 255 255 / 11%);
-    --shadow-card: 0 8px 32px rgb(0 0 0 / 35%);
-    --shadow-pop: 0 18px 48px rgb(0 0 0 / 55%);
-    --shadow-thumb: 0 1px 4px rgb(0 0 0 / 40%);
+  --fill-1: rgb(30 38 54 / 55%);
+  --fill-2: rgb(255 255 255 / 9%);
+  --fill-3: rgb(28 36 50 / 92%);
+  --fill-inset: rgb(255 255 255 / 6%);
+  --hairline: rgb(255 255 255 / 14%);
+  --sheen: rgb(255 255 255 / 11%);
+  --sheen-soft: rgb(255 255 255 / 3%);
+  --rim: rgb(255 255 255 / 12%);
+  --stroke: rgb(255 255 255 / 10%);
+  --edge: rgb(255 255 255 / 11%);
+  --shadow-card: 0 8px 32px rgb(0 0 0 / 35%);
+  --shadow-pop: 0 18px 48px rgb(0 0 0 / 55%);
+  --shadow-thumb: 0 1px 4px rgb(0 0 0 / 40%);
 
-    --hover: rgb(255 255 255 / 9%);
-    --border-strong: rgb(255 255 255 / 18%);
-    --track: rgb(255 255 255 / 10%);
-    --solid: #1b2331;
+  --hover: rgb(255 255 255 / 9%);
+  --border-strong: rgb(255 255 255 / 18%);
+  --track: rgb(255 255 255 / 10%);
+  --solid: #1b2331;
 
-    --text: #eef2f8;
-    --text-2: #cdd4df;
-    --muted: #9ba8bc;
-    --faint: #6f7b8f;
+  --text: #eef2f8;
+  --text-2: #cdd4df;
+  --muted: #9ba8bc;
+  --faint: #6f7b8f;
 
-    --accent: #0a84ff;
-    --accent-hi: #5eb1ff;
-    --accent-hover: #409cff;
-    --accent-soft: rgb(10 132 255 / 18%);
+  --accent: #0a84ff;
+  --accent-hi: #5eb1ff;
+  --accent-hover: #409cff;
+  --accent-soft: rgb(10 132 255 / 18%);
 
-    --good: #32d74b;
-    --warning: #ff9f0a;
-    --danger: #ff453a;
+  --good: #32d74b;
+  --warning: #ff9f0a;
+  --danger: #ff453a;
 
-    --p-codex: #34c79e;
-    --p-claude: #e8916f;
-    --p-grok: #c9cfd9;
-    --p-agy: #6aa6ff;
+  --p-codex: #34c79e;
+  --p-claude: #e8916f;
+  --p-grok: #c9cfd9;
+  --p-agy: #6aa6ff;
 
-    --series-1: #3987e5;
-    --series-2: #d95926;
-  }
+  --series-1: #3987e5;
+  --series-2: #d95926;
+  --series-3: #a78bfa;
+  --series-4: #34d399;
+
+  --shell: rgb(18 26 40 / 46%);
+  --tile: rgb(255 255 255 / 6%);
+  --tile-edge: rgb(255 255 255 / 9%);
+  --shadow-tile: 0 1px 3px rgb(0 0 0 / 30%);
 }
 
 @media (max-width: 850px) { :root { --gutter: 20px; } }

@@ -1,35 +1,43 @@
-import React, { useEffect, useMemo, useRef, useState } from 'react';
+import React, { useEffect, useId, useMemo, useRef, useState } from 'react';
 import type { DailyTrendPoint } from '../types';
 import { formatTokens, formatUsd } from '../lib/format';
 import { useI18n } from '../i18n';
 
 export type TrendMetric = 'tokens' | 'cost';
+export type TrendKind = 'bar' | 'line';
 
 interface UsageTrendChartProps {
   trend: DailyTrendPoint[];
   metric: TrendMetric;
+  kind: TrendKind;
+  /** Series the user switched off in the legend (line view only). */
+  hidden?: ReadonlySet<string>;
 }
 
+type SeriesKey = 'inputTokens' | 'outputTokens' | 'cacheReadTokens' | 'cacheWriteTokens' | 'estimatedCostUsd';
+
 interface Series {
-  key: 'inputTokens' | 'outputTokens' | 'estimatedCostUsd';
+  key: SeriesKey;
   labelKey: string;
   color: string;
 }
 
-const TOKEN_SERIES: Series[] = [
-  { key: 'inputTokens', labelKey: 'trend.input', color: 'var(--series-1)' },
-  { key: 'outputTokens', labelKey: 'trend.output', color: 'var(--series-2)' },
-];
-const COST_SERIES: Series[] = [{ key: 'estimatedCostUsd', labelKey: 'trend.estCost', color: 'var(--series-1)' }];
+const INPUT: Series = { key: 'inputTokens', labelKey: 'trend.input', color: 'var(--series-1)' };
+const OUTPUT: Series = { key: 'outputTokens', labelKey: 'trend.output', color: 'var(--series-2)' };
+const CACHE_READ: Series = { key: 'cacheReadTokens', labelKey: 'trend.cacheRead', color: 'var(--series-3)' };
+const CACHE_WRITE: Series = { key: 'cacheWriteTokens', labelKey: 'trend.cacheWrite', color: 'var(--series-4)' };
+const COST: Series = { key: 'estimatedCostUsd', labelKey: 'trend.estCost', color: 'var(--series-1)' };
 
-export function seriesFor(metric: TrendMetric): Series[] {
-  return metric === 'cost' ? COST_SERIES : TOKEN_SERIES;
+/** Bars stack input + output; lines show every token series on its own (like codex-switch's trend chart). */
+export function seriesFor(metric: TrendMetric, kind: TrendKind = 'bar'): Series[] {
+  if (metric === 'cost') return [COST];
+  return kind === 'line' ? [INPUT, OUTPUT, CACHE_READ, CACHE_WRITE] : [INPUT, OUTPUT];
 }
 
 const HEIGHT = 240;
 const PAD = { top: 10, right: 8, bottom: 26, left: 52 };
 
-function value(point: DailyTrendPoint, key: Series['key']): number {
+function value(point: DailyTrendPoint, key: SeriesKey): number {
   const n = Number(point[key] ?? 0);
   return Number.isFinite(n) && n > 0 ? n : 0;
 }
@@ -56,12 +64,55 @@ function dayLabel(date: string): string {
   return month && day ? `${Number(month)}/${Number(day)}` : date;
 }
 
-export const UsageTrendChart: React.FC<UsageTrendChartProps> = ({ trend, metric }) => {
+/** Monotone cubic curve through the points: smooth, and never overshoots between samples. */
+function monotonePath(points: Array<[number, number]>): string {
+  const n = points.length;
+  if (n === 0) return '';
+  if (n === 1) return `M ${points[0][0]} ${points[0][1]}`;
+  const dx: number[] = [];
+  const slope: number[] = [];
+  for (let i = 0; i < n - 1; i += 1) {
+    dx.push(points[i + 1][0] - points[i][0]);
+    slope.push((points[i + 1][1] - points[i][1]) / dx[i]);
+  }
+  const tangent: number[] = [slope[0]];
+  for (let i = 1; i < n - 1; i += 1) tangent.push(slope[i - 1] * slope[i] <= 0 ? 0 : (slope[i - 1] + slope[i]) / 2);
+  tangent.push(slope[n - 2]);
+  for (let i = 0; i < n - 1; i += 1) {
+    if (slope[i] === 0) {
+      tangent[i] = 0;
+      tangent[i + 1] = 0;
+      continue;
+    }
+    const a = tangent[i] / slope[i];
+    const b = tangent[i + 1] / slope[i];
+    const sum = a * a + b * b;
+    if (sum > 9) {
+      const k = 3 / Math.sqrt(sum);
+      tangent[i] = k * a * slope[i];
+      tangent[i + 1] = k * b * slope[i];
+    }
+  }
+  let d = `M ${points[0][0]} ${points[0][1]}`;
+  for (let i = 0; i < n - 1; i += 1) {
+    const third = dx[i] / 3;
+    d += ` C ${points[i][0] + third} ${points[i][1] + tangent[i] * third}, ${points[i + 1][0] - third} ${points[i + 1][1] - tangent[i + 1] * third}, ${points[i + 1][0]} ${points[i + 1][1]}`;
+  }
+  return d;
+}
+
+const NONE: ReadonlySet<string> = new Set();
+
+export const UsageTrendChart: React.FC<UsageTrendChartProps> = ({ trend, metric, kind, hidden = NONE }) => {
   const { t, locale } = useI18n();
+  const gradientId = `trend-${useId().replace(/:/g, '')}`;
   const hostRef = useRef<HTMLDivElement>(null);
   const [width, setWidth] = useState(640);
   const [hover, setHover] = useState<number | null>(null);
-  const series = seriesFor(metric);
+  const series = useMemo(
+    () => seriesFor(metric, kind).filter((s) => kind !== 'line' || !hidden.has(s.key)),
+    [metric, kind, hidden],
+  );
 
   useEffect(() => {
     const host = hostRef.current;
@@ -76,13 +127,16 @@ export const UsageTrendChart: React.FC<UsageTrendChartProps> = ({ trend, metric 
   const plot = useMemo(() => {
     const innerW = Math.max(40, width - PAD.left - PAD.right);
     const innerH = HEIGHT - PAD.top - PAD.bottom;
-    const totals = trend.map((point) => series.reduce((sum, s) => sum + value(point, s.key), 0));
-    const max = niceMax(Math.max(0, ...totals));
+    // Stacked bars reach the sum of their segments; lines only reach the tallest single series.
+    const peaks = trend.map((point) => (kind === 'bar'
+      ? series.reduce((sum, s) => sum + value(point, s.key), 0)
+      : Math.max(0, ...series.map((s) => value(point, s.key)))));
+    const max = niceMax(Math.max(0, ...peaks));
     const slot = innerW / Math.max(1, trend.length);
     const barW = Math.max(3, Math.min(28, slot * 0.62));
     const labelStep = Math.max(1, Math.ceil(trend.length / Math.max(2, Math.floor(innerW / 64))));
-    return { innerW, innerH, max, slot, barW, labelStep, totals };
-  }, [trend, width, series]);
+    return { innerW, innerH, max, slot, barW, labelStep };
+  }, [trend, width, series, kind]);
 
   if (trend.length === 0) {
     return <div className="trend-chart is-empty">{t('trend.empty')}</div>;
@@ -94,6 +148,7 @@ export const UsageTrendChart: React.FC<UsageTrendChartProps> = ({ trend, metric 
   const hovered = hover == null ? null : trend[hover];
   const tooltipLeft = hover == null ? 0 : xOf(hover);
   const flip = tooltipLeft > width - 220;
+  const baseline = yOf(0);
 
   const onMove = (event: React.PointerEvent<SVGSVGElement>) => {
     const bounds = event.currentTarget.getBoundingClientRect();
@@ -109,9 +164,19 @@ export const UsageTrendChart: React.FC<UsageTrendChartProps> = ({ trend, metric 
         className="trend-svg"
         viewBox={`0 0 ${width} ${HEIGHT}`}
         role="img"
-        aria-label={t(metric === 'cost' ? 'trend.aria.cost' : 'trend.aria.tokens')}
+        aria-label={t(metric === 'cost' ? 'trend.aria.cost' : kind === 'line' ? 'trend.aria.line' : 'trend.aria.tokens')}
         onPointerMove={onMove}
       >
+        {kind === 'line' && (
+          <defs>
+            {series.map((s) => (
+              <linearGradient key={s.key} id={`${gradientId}-${s.key}`} x1="0" y1="0" x2="0" y2="1">
+                <stop offset="0%" stopColor={s.color} stopOpacity={0.22} />
+                <stop offset="100%" stopColor={s.color} stopOpacity={0} />
+              </linearGradient>
+            ))}
+          </defs>
+        )}
         {[0, 0.25, 0.5, 0.75, 1].map((ratio) => {
           const y = yOf(plot.max * ratio);
           return (
@@ -124,7 +189,8 @@ export const UsageTrendChart: React.FC<UsageTrendChartProps> = ({ trend, metric 
         {hover != null && (
           <rect className="chart-hover-band" x={PAD.left + plot.slot * hover} y={PAD.top} width={plot.slot} height={plot.innerH} rx={4} />
         )}
-        {trend.map((point, index) => {
+
+        {kind === 'bar' && trend.map((point, index) => {
           let base = 0;
           const x = xOf(index) - plot.barW / 2;
           const segments = series.map((s, segIndex) => {
@@ -143,6 +209,25 @@ export const UsageTrendChart: React.FC<UsageTrendChartProps> = ({ trend, metric 
           });
           return <g key={point.date}>{segments}</g>;
         })}
+
+        {kind === 'line' && series.map((s) => {
+          const points = trend.map((point, index): [number, number] => [xOf(index), yOf(value(point, s.key))]);
+          const line = monotonePath(points);
+          const area = points.length > 1
+            ? `${line} L ${points[points.length - 1][0]} ${baseline} L ${points[0][0]} ${baseline} Z`
+            : '';
+          return (
+            <g key={s.key}>
+              {area && <path d={area} fill={`url(#${gradientId}-${s.key})`} />}
+              <path className="trend-line" d={line} stroke={s.color} />
+              {points.length === 1 && <circle cx={points[0][0]} cy={points[0][1]} r={3.5} fill={s.color} />}
+              {hover != null && (
+                <circle className="trend-dot" cx={points[hover][0]} cy={points[hover][1]} r={4} stroke={s.color} />
+              )}
+            </g>
+          );
+        })}
+
         {trend.map((point, index) => (
           index % plot.labelStep === 0 ? (
             <text key={point.date} className="chart-tick" x={xOf(index)} y={HEIGHT - 8} textAnchor="middle">{dayLabel(point.date)}</text>
@@ -158,8 +243,8 @@ export const UsageTrendChart: React.FC<UsageTrendChartProps> = ({ trend, metric 
           <strong>{hovered.date}</strong>
           <div><i style={{ background: 'var(--series-1)' }} />{t('trend.input')}<b>{formatTokens(hovered.inputTokens)}</b></div>
           <div><i style={{ background: 'var(--series-2)' }} />{t('trend.output')}<b>{formatTokens(hovered.outputTokens)}</b></div>
-          <div><i style={{ background: 'transparent' }} />{t('trend.cacheRead')}<b>{formatTokens(hovered.cacheReadTokens ?? 0)}</b></div>
-          <div><i style={{ background: 'transparent' }} />{t('trend.cacheWrite')}<b>{formatTokens(hovered.cacheWriteTokens ?? 0)}</b></div>
+          <div><i style={{ background: kind === 'line' ? 'var(--series-3)' : 'transparent' }} />{t('trend.cacheRead')}<b>{formatTokens(hovered.cacheReadTokens ?? 0)}</b></div>
+          <div><i style={{ background: kind === 'line' ? 'var(--series-4)' : 'transparent' }} />{t('trend.cacheWrite')}<b>{formatTokens(hovered.cacheWriteTokens ?? 0)}</b></div>
           <hr />
           <div>{t('trend.estCost')}<b>{formatUsd(hovered.estimatedCostUsd, 2)}</b></div>
           <div>{t('trend.requests')}<b>{t('trend.times', { n: (hovered.requestCount || 0).toLocaleString(locale) })}</b></div>

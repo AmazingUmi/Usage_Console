@@ -9,6 +9,7 @@ import { AddAccountDialog } from './components/AddAccountDialog';
 import { useI18n } from './i18n';
 import { fetchQuota, refreshQuota, fetchUsageOverview, fetchSettings, syncUsage, trendDaysFor } from './api';
 import { quotaCardsForAccounts } from './lib/providers';
+import { HelpTip } from './components/HelpTip';
 import { Icon } from './components/Icon';
 import type {
   AccountType,
@@ -208,11 +209,11 @@ export const App: React.FC = () => {
           </div>
         )}
 
-        <section className="section" aria-labelledby="quota-title">
+        <section className="section" data-module="quota" aria-labelledby="quota-title">
           <div className="section-heading">
-            <div>
+            <div className="title-row">
               <h2 id="quota-title">{t('quota.title')}</h2>
-              <p className="hint">{t('quota.hint')}</p>
+              <HelpTip text={t('quota.hint')} />
             </div>
             <div className="quota-actions">
               <button type="button" className="btn btn-sm btn-primary" onClick={() => setAddAccount({})}>
@@ -246,11 +247,11 @@ export const App: React.FC = () => {
           )}
         </section>
 
-        <section className="section" aria-labelledby="overview-title">
+        <section className="section" data-module="usage" aria-labelledby="overview-title">
           <div className="section-heading">
-            <div>
+            <div className="title-row">
               <h2 id="overview-title">{t('overview.title')}</h2>
-              <p className="hint">{t('overview.hint')}</p>
+              <HelpTip text={t('overview.hint')} />
             </div>
             <div className="segmented" role="group" aria-label={t('range.aria')}>
               {RANGES.map((item) => (

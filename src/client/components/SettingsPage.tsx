@@ -6,6 +6,7 @@ import type { Lang } from '../i18n';
 import { useI18n } from '../i18n';
 import { BatteryThresholdSlider } from './BatteryThresholdSlider';
 import { RefreshIntervalSetting } from './RefreshIntervalSetting';
+import { HelpTip } from './HelpTip';
 import { Icon } from './Icon';
 
 interface SettingsPageProps {
@@ -109,19 +110,21 @@ export const SettingsPage: React.FC<SettingsPageProps> = ({ open, onToggle, sett
   const accounts = settings?.accounts ?? [];
 
   return (
-    <section className="section" aria-labelledby="settings-title">
+    <section className="section" data-module="settings" aria-labelledby="settings-title">
       <div className="section-heading">
-        <button
-          type="button"
-          className="settings-toggle"
-          aria-expanded={open}
-          aria-controls="settings-panel"
-          onClick={onToggle}
-        >
-          <Icon name="chevron" size={16} />
-          <h2 id="settings-title">{t('settings.title')}</h2>
-        </button>
-        {!open && <p className="hint">{t('settings.collapsedHint')}</p>}
+        <div className="title-row">
+          <button
+            type="button"
+            className="settings-toggle"
+            aria-expanded={open}
+            aria-controls="settings-panel"
+            onClick={onToggle}
+          >
+            <Icon name="chevron" size={16} />
+            <h2 id="settings-title">{t('settings.title')}</h2>
+          </button>
+          <HelpTip text={t('settings.collapsedHint')} />
+        </div>
       </div>
 
       {open && (
@@ -134,9 +137,9 @@ export const SettingsPage: React.FC<SettingsPageProps> = ({ open, onToggle, sett
             <div id="settings-panel" className="settings-grid">
               <section className="panel settings-card" aria-labelledby="account-settings-title">
                 <div className="panel-head">
-                  <div>
+                  <div className="title-row">
                     <h3 id="account-settings-title">{t('settings.accounts')}</h3>
-                    <p className="hint">{t('settings.accountsHint')}</p>
+                    <HelpTip text={t('settings.accountsHint')} />
                   </div>
                   <div className="row-wrap">
                     <button type="button" className="btn btn-sm" onClick={calibrate} disabled={calibrating}>
@@ -148,40 +151,44 @@ export const SettingsPage: React.FC<SettingsPageProps> = ({ open, onToggle, sett
                   </div>
                 </div>
                 <div className="panel-body">
-                  <ul className="account-list">
+                  <div className="block-grid">
                     {accounts.map((account) => {
                       const needsLogin = LOGIN_TYPES.has(account.type);
                       return (
-                        <li key={account.id}>
-                          <span className="chip">{ACCOUNT_TYPE_LABEL[account.type]}</span>
-                          <div className="grow">
-                            <strong>{account.label || account.email || ACCOUNT_TYPE_LABEL[account.type]}</strong>
+                        <article key={account.id} className="block account-block">
+                          <div className="account-top">
+                            <span className="chip">{ACCOUNT_TYPE_LABEL[account.type]}</span>
                             {needsLogin && (
-                              <span className="badge" data-tone={account.ownLogin ? 'good' : 'muted'} style={{ marginLeft: 8 }}>
+                              <span className="badge" data-tone={account.ownLogin ? 'good' : 'muted'}>
                                 {account.ownLogin ? t('settings.ownLogin') : t('settings.needLogin')}
                               </span>
                             )}
+                          </div>
+                          <div className="account-name">
+                            <strong title={account.label || account.email}>{account.label || account.email || ACCOUNT_TYPE_LABEL[account.type]}</strong>
                             <p className="hint" title={account.userId}>
                               {account.email && account.label ? `${account.email} · ` : ''}{account.userId || t('settings.unknownId')}
                             </p>
                           </div>
-                          {needsLogin && (
-                            <button type="button" className="btn btn-sm" onClick={() => onAddAccount(account.type)}>
-                              {account.ownLogin ? t('settings.relogin') : t('settings.login')}
+                          <div className="account-actions">
+                            {needsLogin && (
+                              <button type="button" className="btn btn-sm" onClick={() => onAddAccount(account.type)}>
+                                {account.ownLogin ? t('settings.relogin') : t('settings.login')}
+                              </button>
+                            )}
+                            <button
+                              type="button"
+                              className="btn btn-sm btn-ghost btn-danger"
+                              onClick={() => run(async () => onSaved((await deleteAccount(account.id)).settings))}
+                            >
+                              {t('settings.remove')}
                             </button>
-                          )}
-                          <button
-                            type="button"
-                            className="btn btn-sm btn-ghost btn-danger"
-                            onClick={() => run(async () => onSaved((await deleteAccount(account.id)).settings))}
-                          >
-                            {t('settings.remove')}
-                          </button>
-                        </li>
+                          </div>
+                        </article>
                       );
                     })}
-                    {accounts.length === 0 && <li className="hint">{t('settings.noAccounts')}</li>}
-                  </ul>
+                    {accounts.length === 0 && <p className="hint block-empty">{t('settings.noAccounts')}</p>}
+                  </div>
                 </div>
               </section>
 
@@ -190,111 +197,112 @@ export const SettingsPage: React.FC<SettingsPageProps> = ({ open, onToggle, sett
                   <h3 id="display-settings-title">{t('settings.display')}</h3>
                 </div>
                 <div className="panel-body">
-                  <div className="row">
-                    <div>
-                      <strong>{t('settings.language')}</strong>
-                      <p className="hint">{t('settings.languageHint')}</p>
+                  <div className="block-grid">
+                    <div className="block">
+                      <span className="field-label">
+                        <span className="label-row">{t('settings.language')}<HelpTip text={t('settings.languageHint')} /></span>
+                      </span>
+                      <div className="segmented" role="group" aria-label={t('settings.language')}>
+                        {LANGS.map((item) => (
+                          <button key={item} type="button" aria-pressed={lang === item} onClick={() => setLang(item)}>
+                            {t(`settings.lang.${item}`)}
+                          </button>
+                        ))}
+                      </div>
                     </div>
-                    <div className="segmented" role="group" aria-label={t('settings.language')}>
-                      {LANGS.map((item) => (
-                        <button key={item} type="button" aria-pressed={lang === item} onClick={() => setLang(item)}>
-                          {t(`settings.lang.${item}`)}
-                        </button>
-                      ))}
+                    <div className="block">
+                      <span className="field-label">
+                        <span className="label-row">{t('settings.refresh.title')}<HelpTip text={t('settings.refresh.hint')} /></span>
+                      </span>
+                      <RefreshIntervalSetting
+                        seconds={settings.quotaRefreshIntervalSeconds}
+                        onSave={(seconds) => saveDisplay({ quotaRefreshIntervalSeconds: seconds })}
+                      />
                     </div>
-                  </div>
-                  <div className="field">
-                    <span className="field-label">{t('settings.battery.title')}</span>
-                    <BatteryThresholdSlider
-                      value={{ warning: settings.quotaBatteryWarning, low: settings.quotaBatteryLow }}
-                      onCommit={(next) => run(() => saveDisplay({ quotaBatteryWarning: next.warning, quotaBatteryLow: next.low }))}
-                    />
-                    <span className="hint">{t('settings.battery.hint')}</span>
-                    <span>
+                    <div className="block">
+                      <span className="field-label">
+                        <span className="label-row">{t('settings.hideAgy')}<HelpTip text={t('settings.hideAgyHint')} /></span>
+                      </span>
                       <button
                         type="button"
-                        className="btn btn-sm"
-                        disabled={settings.quotaBatteryWarning === 50 && settings.quotaBatteryLow === 10}
-                        onClick={() => run(() => saveDisplay({ quotaBatteryWarning: 50, quotaBatteryLow: 10 }))}
-                      >
-                        {t('settings.battery.reset')}
-                      </button>
-                    </span>
-                  </div>
-                  <div className="field">
-                    <span className="field-label">{t('settings.refresh.title')}</span>
-                    <RefreshIntervalSetting
-                      seconds={settings.quotaRefreshIntervalSeconds}
-                      onSave={(seconds) => saveDisplay({ quotaRefreshIntervalSeconds: seconds })}
-                    />
-                    <span className="hint">{t('settings.refresh.hint')}</span>
-                  </div>
-                  <div className="row">
-                    <div>
-                      <strong>{t('settings.hideAgy')}</strong>
-                      <p className="hint">{t('settings.hideAgyHint')}</p>
+                        className="switch"
+                        role="switch"
+                        aria-checked={hideAgyClaude}
+                        aria-label={t('settings.hideAgy')}
+                        disabled={savingHide}
+                        onClick={() => saveHide(!hideAgyClaude)}
+                      />
                     </div>
-                    <button
-                      type="button"
-                      className="switch"
-                      role="switch"
-                      aria-checked={hideAgyClaude}
-                      aria-label={t('settings.hideAgy')}
-                      disabled={savingHide}
-                      onClick={() => saveHide(!hideAgyClaude)}
-                    />
+                    <div className="block span-all">
+                      <span className="field-label">
+                        <span className="label-row">{t('settings.battery.title')}<HelpTip text={t('settings.battery.hint')} /></span>
+                        <button
+                          type="button"
+                          className="btn btn-sm"
+                          disabled={settings.quotaBatteryWarning === 50 && settings.quotaBatteryLow === 10}
+                          onClick={() => run(() => saveDisplay({ quotaBatteryWarning: 50, quotaBatteryLow: 10 }))}
+                        >
+                          {t('settings.battery.reset')}
+                        </button>
+                      </span>
+                      <BatteryThresholdSlider
+                        value={{ warning: settings.quotaBatteryWarning, low: settings.quotaBatteryLow }}
+                        onCommit={(next) => run(() => saveDisplay({ quotaBatteryWarning: next.warning, quotaBatteryLow: next.low }))}
+                      />
+                    </div>
                   </div>
                 </div>
               </section>
 
-              <section className="panel settings-card span-2" aria-labelledby="path-settings-title">
+              <section className="panel settings-card" aria-labelledby="path-settings-title">
                 <div className="panel-head">
-                  <div>
+                  <div className="title-row">
                     <h3 id="path-settings-title">{t('settings.paths')}</h3>
-                    <p className="hint">{t('settings.pathsHint')}</p>
+                    <HelpTip text={t('settings.pathsHint')} />
                   </div>
                   <button type="button" className="btn btn-sm btn-primary" onClick={savePaths} disabled={savingPaths || !dirty}>
                     {savingPaths ? t('settings.saving') : t('settings.saveRescan')}
                   </button>
                 </div>
                 <div className="panel-body">
-                  <label className="field">
-                    <span className="field-label">{t('settings.dataDir')}</span>
-                    <input className="input mono" value={dataDir} spellCheck={false} onChange={(event) => setDataDir(event.target.value)} />
-                    <span className="hint">{t('settings.dataDirHint')}</span>
-                  </label>
-                  {PATH_KEYS.map((key) => {
-                    const ready = settings.availability[key];
-                    const effective = key === 'claudeProjectsDir' && settings.claudeProjectsAll?.length
-                      ? settings.claudeProjectsAll.join(lang === 'zh' ? '，' : ', ')
-                      : settings.resolved[key];
-                    return (
-                      <label key={key} className="field">
-                        <span className="field-label">
-                          {t(`path.${key}`)}
-                          <span className="ready" data-ready={ready ? 'true' : 'false'}>{ready ? t('settings.found') : t('settings.notFound')}</span>
-                        </span>
-                        <span className="path-control">
+                  <div className="block-grid wide">
+                    <label className="block span-all field">
+                      <span className="field-label">
+                        <span className="label-row">{t('settings.dataDir')}<HelpTip text={t('settings.dataDirHint')} /></span>
+                      </span>
+                      <input className="input mono" value={dataDir} spellCheck={false} onChange={(event) => setDataDir(event.target.value)} />
+                    </label>
+                    {PATH_KEYS.map((key) => {
+                      const ready = settings.availability[key];
+                      const effective = key === 'claudeProjectsDir' && settings.claudeProjectsAll?.length
+                        ? settings.claudeProjectsAll.join(lang === 'zh' ? '，' : ', ')
+                        : settings.resolved[key];
+                      return (
+                        <label key={key} className="block field">
+                          <span className="field-label">
+                            <span className="label-row">{t(`path.${key}`)}<HelpTip text={t(`path.${key}Hint`)} /></span>
+                            <span className="ready" data-ready={ready ? 'true' : 'false'}>{ready ? t('settings.found') : t('settings.notFound')}</span>
+                          </span>
                           <input
                             className="input mono"
                             value={draft[key]}
                             spellCheck={false}
                             onChange={(event) => setDraft({ ...draft, [key]: event.target.value })}
                           />
-                          <button
-                            type="button"
-                            className="btn"
-                            onClick={() => setDraft({ ...draft, [key]: settings.defaults[key] })}
-                            disabled={draft[key] === settings.defaults[key]}
-                          >
-                            {t('settings.restoreDefault')}
-                          </button>
-                        </span>
-                        <span className="hint">{t(`path.${key}Hint`)}</span>
-                        {effective !== draft[key].trim() && <span className="hint">{t('settings.actualScan')}<code>{effective}</code></span>}
-                      </label>
-                    );
-                  })}
+                          {draft[key] !== settings.defaults[key] && (
+                            <button
+                              type="button"
+                              className="btn btn-sm btn-ghost block-reset"
+                              onClick={() => setDraft({ ...draft, [key]: settings.defaults[key] })}
+                            >
+                              {t('settings.restoreDefault')}
+                            </button>
+                          )}
+                          {effective !== draft[key].trim() && <span className="hint">{t('settings.actualScan')}<code>{effective}</code></span>}
+                        </label>
+                      );
+                    })}
+                  </div>
                 </div>
               </section>
 
@@ -309,26 +317,24 @@ export const SettingsPage: React.FC<SettingsPageProps> = ({ open, onToggle, sett
                   </div>
                 </div>
                 <div className="panel-body">
-                  <ul className="scan-list">
+                  <div className="block-grid">
                     {settings.scan.sources.map((source) => {
                       const note = sourceNote(source);
                       return (
-                        <li key={source.id}>
-                          <div className="row">
-                            <strong>{t(`scan.src.${source.id}`) === `scan.src.${source.id}` ? source.label : t(`scan.src.${source.id}`)}</strong>
-                            <span className="hint">
-                              {source.exists
-                                ? t('settings.scanFiles', { files: source.filesScanned, records: source.records.toLocaleString(locale) })
-                                : t('settings.dirMissing')}
-                            </span>
-                          </div>
-                          <code>{source.path}</code>
+                        <article key={source.id} className="block scan-block">
+                          <strong>{t(`scan.src.${source.id}`) === `scan.src.${source.id}` ? source.label : t(`scan.src.${source.id}`)}</strong>
+                          <span className="scan-count">
+                            {source.exists
+                              ? t('settings.scanFiles', { files: source.filesScanned, records: source.records.toLocaleString(locale) })
+                              : t('settings.dirMissing')}
+                          </span>
+                          <code title={source.path}>{source.path}</code>
                           {note && <span className="hint">{note}</span>}
-                        </li>
+                        </article>
                       );
                     })}
-                    {settings.scan.sources.length === 0 && <li className="hint">{t('settings.scanNone')}</li>}
-                  </ul>
+                    {settings.scan.sources.length === 0 && <p className="hint block-empty">{t('settings.scanNone')}</p>}
+                  </div>
                 </div>
               </section>
             </div>

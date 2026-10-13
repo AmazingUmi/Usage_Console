@@ -1,9 +1,9 @@
 /* ===== Fallbacks & user preferences ===== */
 @supports not ((backdrop-filter: blur(1px)) or (-webkit-backdrop-filter: blur(1px))) {
-  :root { --fill-1: var(--solid); --fill-3: var(--solid); }
+  :root { --fill-1: var(--solid); --fill-3: var(--solid); --shell: var(--solid); }
 }
 @media (prefers-reduced-transparency: reduce) {
-  :root { --fill-1: var(--solid); --fill-3: var(--solid); --blur: none; --blur-pop: none; }
+  :root { --fill-1: var(--solid); --fill-3: var(--solid); --shell: var(--solid); --blur: none; --blur-pop: none; --blur-bar: none; }
 }
 @media (prefers-reduced-motion: reduce) {
   html { scroll-behavior: auto; }
@@ -11,6 +11,6 @@
 }
 @media (forced-colors: active) {
   .battery-fill, .breakdown-track span { background: Highlight; box-shadow: none; }
-  .battery, .panel, .app-header { border: 1px solid CanvasText; }
+  .battery, .panel, .section, .app-header { border: 1px solid CanvasText; }
   .connection-status, .dot, .badge::before { forced-color-adjust: none; }
 }

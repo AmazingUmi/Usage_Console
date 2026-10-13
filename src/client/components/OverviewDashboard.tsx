@@ -2,6 +2,8 @@ import React, { useState } from 'react';
 import type { UsageSummary, DailyTrendPoint, GroupedUsage } from '../types';
 import { formatCnyFromUsd, formatTokens, formatUsd } from '../lib/format';
 import { useI18n } from '../i18n';
+import { HelpTip } from './HelpTip';
+import type { TrendKind } from './UsageTrendChart';
 import { UsageTrendChart, seriesFor } from './UsageTrendChart';
 import type { TrendMetric } from './UsageTrendChart';
 
@@ -22,10 +24,33 @@ const DIMENSIONS: Array<{ id: Dimension; key: string }> = [
 ];
 
 const MAX_ROWS = 8;
+const KIND_KEY = 'usage-console-trend-kind';
 
 export const OverviewDashboard: React.FC<OverviewDashboardProps> = ({ summary, trend, models, providers, clients }) => {
   const { t, locale } = useI18n();
   const [metric, setMetric] = useState<TrendMetric>('tokens');
+  const [hidden, setHidden] = useState<ReadonlySet<string>>(new Set());
+  const toggleSeries = (key: string) => setHidden((current) => {
+    const next = new Set(current);
+    if (next.has(key)) next.delete(key);
+    else next.add(key);
+    return next;
+  });
+  const [kind, setKindState] = useState<TrendKind>(() => {
+    try {
+      return window.localStorage.getItem(KIND_KEY) === 'line' ? 'line' : 'bar';
+    } catch {
+      return 'bar';
+    }
+  });
+  const setKind = (next: TrendKind) => {
+    setKindState(next);
+    try {
+      window.localStorage.setItem(KIND_KEY, next);
+    } catch {
+      // Not persisted; the choice still applies for this session.
+    }
+  };
   const [dimension, setDimension] = useState<Dimension>('client');
 
   const lists: Record<Dimension, GroupedUsage[]> = { client: clients, model: models, provider: providers };
@@ -71,24 +96,41 @@ export const OverviewDashboard: React.FC<OverviewDashboardProps> = ({ summary, t
       <div className="dash-row">
         <section className="panel" aria-labelledby="trend-title">
           <div className="panel-head">
-            <div>
+            <div className="title-row">
               <h3 id="trend-title">{t('trend.title')}</h3>
-              <p className="hint">{t('trend.hint', { n: trend.length })}</p>
+              <HelpTip text={t('trend.hint', { n: trend.length })} />
             </div>
-            <div className="segmented" role="group" aria-label={t('trend.metric')}>
-              <button type="button" aria-pressed={metric === 'tokens'} onClick={() => setMetric('tokens')}>Token</button>
-              <button type="button" aria-pressed={metric === 'cost'} onClick={() => setMetric('cost')}>{t('trend.cost')}</button>
+            <div className="row-wrap">
+              <div className="segmented" role="group" aria-label={t('trend.kind')}>
+                <button type="button" aria-pressed={kind === 'bar'} onClick={() => setKind('bar')}>{t('trend.kind.bar')}</button>
+                <button type="button" aria-pressed={kind === 'line'} onClick={() => setKind('line')}>{t('trend.kind.line')}</button>
+              </div>
+              <div className="segmented" role="group" aria-label={t('trend.metric')}>
+                <button type="button" aria-pressed={metric === 'tokens'} onClick={() => setMetric('tokens')}>Token</button>
+                <button type="button" aria-pressed={metric === 'cost'} onClick={() => setMetric('cost')}>{t('trend.cost')}</button>
+              </div>
             </div>
           </div>
           <div className="chart-body">
-            {seriesFor(metric).length > 1 && (
-              <div className="chart-legend">
-                {seriesFor(metric).map((s) => (
+            <div className="chart-legend">
+              {seriesFor(metric, kind).length > 1 && seriesFor(metric, kind).map((s) => (
+                kind === 'line' ? (
+                  <button
+                    key={s.key}
+                    type="button"
+                    className="legend-toggle"
+                    aria-pressed={!hidden.has(s.key)}
+                    title={t('trend.legendToggle')}
+                    onClick={() => toggleSeries(s.key)}
+                  >
+                    <i style={{ background: s.color }} />{t(s.labelKey)}
+                  </button>
+                ) : (
                   <span key={s.key}><i style={{ background: s.color }} />{t(s.labelKey)}</span>
-                ))}
-              </div>
-            )}
-            <UsageTrendChart trend={trend} metric={metric} />
+                )
+              ))}
+            </div>
+            <UsageTrendChart trend={trend} metric={metric} kind={kind} hidden={hidden} />
           </div>
         </section>
 

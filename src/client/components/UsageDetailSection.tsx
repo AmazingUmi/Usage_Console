@@ -2,6 +2,7 @@ import React, { useState } from 'react';
 import type { GroupedUsage, TokenUsageRecord } from '../types';
 import { formatDateTime, formatTokens, formatUsd } from '../lib/format';
 import { useI18n } from '../i18n';
+import { HelpTip } from './HelpTip';
 
 interface UsageDetailSectionProps {
   models: GroupedUsage[];
@@ -64,11 +65,11 @@ export const UsageDetailSection: React.FC<UsageDetailSectionProps> = ({ models, 
   const [tab, setTab] = useState<Tab>('software');
 
   return (
-    <section className="section" aria-labelledby="usage-title">
+    <section className="section" data-module="detail" aria-labelledby="usage-title">
       <div className="section-heading">
-        <div>
+        <div className="title-row">
           <h2 id="usage-title">{t('detail.title')}</h2>
-          <p className="hint">{t('detail.hint')}</p>
+          <HelpTip text={t('detail.hint')} />
         </div>
         <div className="segmented" role="group" aria-label={t('detail.aria')}>
           <button type="button" aria-pressed={tab === 'software'} onClick={() => setTab('software')}>

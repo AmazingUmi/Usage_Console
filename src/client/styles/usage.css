@@ -9,8 +9,14 @@
 
 /* Trend chart */
 .chart-body { padding: 14px 22px 18px; }
-.chart-legend { display: flex; flex-wrap: wrap; gap: 6px 16px; color: var(--text-2); font-size: 12px; }
+.chart-legend { min-height: 18px; display: flex; flex-wrap: wrap; gap: 6px 16px; color: var(--text-2); font-size: 12px; }
 .chart-legend span { display: inline-flex; align-items: center; gap: 6px; }
+.legend-toggle {
+  display: inline-flex; align-items: center; gap: 6px; padding: 2px 8px 2px 4px; border: 0; border-radius: var(--r-pill);
+  background: transparent; color: inherit; font: inherit; cursor: pointer; transition: opacity .18s var(--ease), background-color .18s var(--ease);
+}
+.legend-toggle:hover { background: var(--hover); }
+.legend-toggle[aria-pressed="false"] { opacity: .45; text-decoration: line-through; }
 .chart-legend i { width: 10px; height: 10px; border-radius: 3px; }
 .trend-chart { position: relative; min-width: 0; margin-top: 10px; }
 .trend-chart.is-empty { display: grid; place-items: center; min-height: 240px; color: var(--muted); font-size: 13px; }
@@ -18,6 +24,8 @@
 .chart-grid { stroke: var(--border); }
 .chart-baseline { stroke: var(--border-strong); }
 .chart-tick { fill: var(--muted); font-size: 11px; font-family: var(--font); }
+.trend-line { fill: none; stroke-width: 2.2; stroke-linecap: round; stroke-linejoin: round; }
+.trend-dot { fill: var(--solid); stroke-width: 2.2; }
 .chart-hover-band { fill: var(--text); fill-opacity: .05; }
 .chart-tooltip {
   position: absolute; top: 4px; z-index: 3; min-width: 190px; padding: 11px 13px;
@@ -36,7 +44,7 @@
 .breakdown { display: flex; flex-direction: column; }
 .breakdown-total { display: flex; align-items: baseline; justify-content: space-between; padding: 14px 22px 4px; color: var(--muted); font-size: 12.5px; }
 .breakdown-total strong { color: var(--text); font-size: 20px; font-weight: 650; letter-spacing: -.02em; }
-.breakdown-list { flex: 1; max-height: 360px; overflow: auto; padding: 6px 22px 18px; scrollbar-width: thin; }
+.breakdown-list { flex: none; height: var(--breakdown-h); overflow: auto; padding: 6px 22px 18px; scrollbar-width: thin; }
 .breakdown-item { padding: 9px 0; }
 .breakdown-item + .breakdown-item { border-top: 1px solid var(--border); }
 .breakdown-row { display: flex; align-items: center; gap: 8px; font-size: 13px; }
@@ -50,13 +58,17 @@
 .table-scroll { overflow-x: auto; }
 .data-table { width: 100%; min-width: 760px; font-size: 13px; text-align: left; }
 .data-table th, .data-table td { padding: 11px 18px; border-bottom: 1px solid var(--border); white-space: nowrap; }
-.data-table th { background: var(--fill-inset); color: var(--muted); font-size: 12px; font-weight: 550; }
+.data-table th {
+  position: sticky; top: 0; z-index: 1; color: var(--muted); font-size: 12px; font-weight: 550;
+  background: color-mix(in srgb, var(--solid) 86%, transparent);
+  -webkit-backdrop-filter: blur(10px); backdrop-filter: blur(10px);
+}
 .data-table td.num, .data-table th.num { text-align: right; }
 .data-table td.strong { font-weight: 600; }
 .data-table td.muted { color: var(--muted); }
 .data-table tbody tr:last-child td { border-bottom: 0; }
 .data-table tbody tr:hover { background: var(--hover); }
-.panel.table-scroll { overflow-x: auto; }
+.panel.table-scroll { height: var(--detail-table-h); overflow: auto; scrollbar-width: thin; }
 .pct-cell { display: flex; align-items: center; gap: 8px; min-width: 120px; }
 .pct-cell .breakdown-track { flex: 1; margin: 0; }
 .pct-cell span { width: 40px; color: var(--muted); font-size: 12px; text-align: right; }
