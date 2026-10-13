@@ -29,8 +29,13 @@ const RANGES: Array<{ id: UsageRange; key: string }> = [
   { id: 'all', key: 'range.all' },
 ];
 
-/** Quota is re-read from the server this often; the server itself polls providers every two minutes. */
-const QUOTA_POLL_MS = 60 * 1000;
+/**
+ * The server polls providers on the "refresh interval" setting; this only re-reads what the server already has,
+ * which is cheap, so it can run more often than that interval.
+ */
+const CACHE_POLL_MS = 15 * 1000;
+/** While a card is still "loading", ask again soon instead of waiting for the next cache poll. */
+const LOADING_POLL_MS = 3 * 1000;
 
 function isAbortError(err: unknown): boolean {
   return err instanceof DOMException && err.name === 'AbortError';
@@ -105,10 +110,13 @@ export const App: React.FC = () => {
     return () => controller.abort();
   }, [loadQuota]);
 
+  const refreshSeconds = settings?.quotaRefreshIntervalSeconds ?? 120;
   useEffect(() => {
-    const timer = window.setInterval(() => loadQuota(), QUOTA_POLL_MS);
+    // Manual-only mode has nothing new to pick up on its own.
+    if (refreshSeconds <= 0) return;
+    const timer = window.setInterval(() => loadQuota(), CACHE_POLL_MS);
     return () => window.clearInterval(timer);
-  }, [loadQuota]);
+  }, [loadQuota, refreshSeconds]);
 
   useEffect(() => {
     const controller = new AbortController();
@@ -148,8 +156,23 @@ export const App: React.FC = () => {
 
   const providerList = useMemo(() => {
     const live = quotaState?.providers ? Object.values(quotaState.providers) : [];
-    return quotaCardsForAccounts(live, settings?.accounts ?? []);
-  }, [quotaState, settings]);
+    return quotaCardsForAccounts(live, settings?.accounts ?? [], {
+      loaded: quotaState !== null,
+      reachable: connectionState !== 'offline',
+    });
+  }, [quotaState, settings, connectionState]);
+
+  const anyLoading = providerList.some((quota) => quota.status === 'loading' || quota.errorCode === 'offline');
+  useEffect(() => {
+    if (!anyLoading) return;
+    const timer = window.setInterval(() => loadQuota(), LOADING_POLL_MS);
+    return () => window.clearInterval(timer);
+  }, [anyLoading, loadQuota]);
+
+  const thresholds = useMemo(() => ({
+    warning: settings?.quotaBatteryWarning ?? 50,
+    low: settings?.quotaBatteryLow ?? 10,
+  }), [settings?.quotaBatteryWarning, settings?.quotaBatteryLow]);
 
   const openSettings = (targetId = 'settings-title') => {
     setSettingsOpen(true);
@@ -213,8 +236,10 @@ export const App: React.FC = () => {
                   key={`${quota.accountCardId || quota.provider}-${index}`}
                   quota={quota}
                   includeAgyClaude={!hideAgyClaude}
+                  thresholds={thresholds}
                   onEdit={setEditingQuota}
                   onSignIn={(type) => setAddAccount({ type })}
+                  onRetry={handleRefresh}
                 />
               ))}
             </div>

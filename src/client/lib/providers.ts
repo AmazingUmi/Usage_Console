@@ -29,14 +29,20 @@ function stripEmail(name: string): string {
   return name.replace(/\s*\([^)]*@[^)]*\)\s*$/, '');
 }
 
-/** Only accounts explicitly added in settings get a quota card. */
-export function quotaCardsForAccounts(live: ProviderQuota[], accounts: ConsoleAccount[]): ProviderQuota[] {
+/**
+ * One card per added account. What a card shows is decided here, in this order:
+ *  1. needs a console login and has none            -> "not signed in" (known from settings, no waiting)
+ *  2. quota not read yet (or the login just landed)  -> "loading"; the server being unreachable shows an error
+ *  3. the server's reading                           -> ok / stale / rate limited / failed / login expired
+ */
+export function quotaCardsForAccounts(
+  live: ProviderQuota[],
+  accounts: ConsoleAccount[],
+  state: { loaded: boolean; reachable: boolean },
+): ProviderQuota[] {
   const used = new Set<ProviderQuota>();
   return accounts.map((account) => {
-    const match = live.find((item) => !used.has(item) && item.accountId && item.accountId === account.userId)
-      || live.find((item) => !used.has(item) && !item.accountId && matchesType(item, account.type))
-      || live.find((item) => !used.has(item) && matchesType(item, account.type) && !accounts.some((other) => other.userId === item.accountId));
-    const snapshot = account.subscription;
+    const needsLogin = account.type !== 'agy';
     const base = {
       userId: account.userId,
       email: account.email,
@@ -44,42 +50,34 @@ export function quotaCardsForAccounts(live: ProviderQuota[], accounts: ConsoleAc
       accountCardId: account.id,
       accountType: account.type,
       ownLogin: account.ownLogin,
-    };
-    if (match) {
-      used.add(match);
-      const liveWindows = match.windows?.length ? match.windows : undefined;
-      const stale = Boolean(!liveWindows && snapshot?.windows?.length && match.status !== 'ok');
-      return {
-        ...match,
-        ...base,
-        displayName: account.label || stripEmail(match.displayName),
-        plan: match.plan || snapshot?.plan,
-        windows: liveWindows || snapshot?.windows,
-        capturedAt: liveWindows ? match.capturedAt : snapshot?.capturedAt || match.capturedAt || 0,
-        status: stale ? 'warning' : match.status,
-        stale,
-      };
-    }
-    if (snapshot?.windows?.length) {
-      return {
-        ...base,
-        provider: TYPE_PROVIDER[account.type],
-        displayName: account.label || ACCOUNT_TYPE_LABEL[account.type],
-        plan: snapshot.plan,
-        capturedAt: snapshot.capturedAt,
-        status: 'warning',
-        errorCode: 'login_required',
-        stale: true,
-        windows: snapshot.windows,
-      };
-    }
-    return {
-      ...base,
       provider: TYPE_PROVIDER[account.type],
       displayName: account.label || ACCOUNT_TYPE_LABEL[account.type],
       capturedAt: 0,
-      status: 'unconfigured',
-      errorCode: account.type === 'agy' ? 'agy_unavailable' : 'login_required',
+    };
+
+    if (needsLogin && !account.ownLogin) {
+      return { ...base, status: 'unconfigured' as const, errorCode: 'login_required' as const };
+    }
+
+    const match = live.find((item) => !used.has(item) && item.accountId && item.accountId === account.userId)
+      || live.find((item) => !used.has(item) && !item.accountId && matchesType(item, account.type));
+    // Right after a login the server may still hold the "not signed in" card from before it; wait for the new read.
+    const outdated = match?.errorCode === 'login_required';
+
+    if (!match || outdated || !state.loaded) {
+      if (match) used.add(match);
+      return state.loaded || state.reachable
+        ? { ...base, status: 'loading' as const }
+        : { ...base, status: 'error' as const, errorCode: 'offline' as const };
+    }
+
+    used.add(match);
+    return {
+      ...match,
+      ...base,
+      displayName: account.label || stripEmail(match.displayName),
+      plan: match.plan,
+      capturedAt: match.capturedAt,
     };
   });
 }

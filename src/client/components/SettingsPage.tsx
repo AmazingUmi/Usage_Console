@@ -4,6 +4,8 @@ import { calibrateData, deleteAccount, saveSettings } from '../api';
 import { ACCOUNT_TYPE_LABEL } from '../lib/providers';
 import type { Lang } from '../i18n';
 import { useI18n } from '../i18n';
+import { BatteryThresholdSlider } from './BatteryThresholdSlider';
+import { RefreshIntervalSetting } from './RefreshIntervalSetting';
 import { Icon } from './Icon';
 
 interface SettingsPageProps {
@@ -64,6 +66,13 @@ export const SettingsPage: React.FC<SettingsPageProps> = ({ open, onToggle, sett
       setSavingHide(false);
     }
   });
+
+  /** Display preferences save as soon as they change; a failure is shown and the control snaps back. */
+  const saveDisplay = async (patch: Parameters<typeof saveSettings>[0]) => {
+    setError(null);
+    const result = await saveSettings(patch);
+    onSaved(result.settings, result.quota);
+  };
 
   const savePaths = () => run(async () => {
     if (!draft) return;
@@ -193,6 +202,32 @@ export const SettingsPage: React.FC<SettingsPageProps> = ({ open, onToggle, sett
                         </button>
                       ))}
                     </div>
+                  </div>
+                  <div className="field">
+                    <span className="field-label">{t('settings.battery.title')}</span>
+                    <BatteryThresholdSlider
+                      value={{ warning: settings.quotaBatteryWarning, low: settings.quotaBatteryLow }}
+                      onCommit={(next) => run(() => saveDisplay({ quotaBatteryWarning: next.warning, quotaBatteryLow: next.low }))}
+                    />
+                    <span className="hint">{t('settings.battery.hint')}</span>
+                    <span>
+                      <button
+                        type="button"
+                        className="btn btn-sm"
+                        disabled={settings.quotaBatteryWarning === 50 && settings.quotaBatteryLow === 10}
+                        onClick={() => run(() => saveDisplay({ quotaBatteryWarning: 50, quotaBatteryLow: 10 }))}
+                      >
+                        {t('settings.battery.reset')}
+                      </button>
+                    </span>
+                  </div>
+                  <div className="field">
+                    <span className="field-label">{t('settings.refresh.title')}</span>
+                    <RefreshIntervalSetting
+                      seconds={settings.quotaRefreshIntervalSeconds}
+                      onSave={(seconds) => saveDisplay({ quotaRefreshIntervalSeconds: seconds })}
+                    />
+                    <span className="hint">{t('settings.refresh.hint')}</span>
                   </div>
                   <div className="row">
                     <div>

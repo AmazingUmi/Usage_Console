@@ -5,11 +5,18 @@ import { formatCompactDuration } from '../lib/format';
 import { useI18n } from '../i18n';
 import { Icon } from './Icon';
 
+export interface BatteryThresholds {
+  warning: number;
+  low: number;
+}
+
 interface QuotaCardProps {
   quota: ProviderQuota;
   includeAgyClaude?: boolean;
+  thresholds: BatteryThresholds;
   onEdit?: (quota: ProviderQuota) => void;
   onSignIn?: (type: AccountType) => void;
+  onRetry?: () => void;
 }
 
 type Translate = ReturnType<typeof useI18n>['t'];
@@ -34,11 +41,11 @@ function windowLabel(label: string, t: Translate): string {
   return text.replace(/ Limit Remaining$/i, '').replace(/ limit/i, '');
 }
 
-const Battery: React.FC<{ window: QuotaWindow }> = ({ window: win }) => {
+const Battery: React.FC<{ window: QuotaWindow; thresholds: BatteryThresholds }> = ({ window: win, thresholds }) => {
   const { t, locale } = useI18n();
   const known = Number.isFinite(win.remainingPercent);
   const percent = known ? Math.min(100, Math.max(0, win.remainingPercent)) : 0;
-  const level = !known ? 'unknown' : percent <= 20 ? 'low' : percent <= 50 ? 'warning' : 'normal';
+  const level = !known ? 'unknown' : percent <= thresholds.low ? 'low' : percent <= thresholds.warning ? 'warning' : 'normal';
   const label = windowLabel(win.label, t);
   const countdown = win.resetAt ? formatCompactDuration(win.resetAt - Date.now()) : '';
   const value = known ? `${Math.round(percent)}%` : t('quota.unknown');
@@ -59,7 +66,7 @@ const Battery: React.FC<{ window: QuotaWindow }> = ({ window: win }) => {
   );
 };
 
-export const QuotaCard: React.FC<QuotaCardProps> = ({ quota, includeAgyClaude = false, onEdit, onSignIn }) => {
+export const QuotaCard: React.FC<QuotaCardProps> = ({ quota, includeAgyClaude = false, thresholds, onEdit, onSignIn, onRetry }) => {
   const { t, locale } = useI18n();
   const visuals = providerVisuals(quota.provider);
   const { windows, groupLabel, hiddenClaude } = collectQuotaWindows(quota, includeAgyClaude);
@@ -68,15 +75,21 @@ export const QuotaCard: React.FC<QuotaCardProps> = ({ quota, includeAgyClaude = 
     .join(' · ');
   const statusLabel = t(`quota.status.${quota.status}`);
 
+  const loading = quota.status === 'loading';
   const code = quota.errorCode === 'agy_unavailable' ? undefined : quota.errorCode;
-  const message = quota.errorCode === 'agy_unavailable'
-    ? t('err.agyLocal')
-    : code
-      ? t(`err.${code}`, { detail: quota.errorMessage || '' })
-      : quota.errorMessage;
-  const text = message ? `${message}${quota.stale ? t('quota.staleSuffix') : ''}` : '';
-  const needsSignIn = (quota.errorCode === 'login_required' || quota.errorCode === 'login_expired')
-    && quota.accountType && quota.accountType !== 'agy' && onSignIn;
+  const message = loading
+    ? t('quota.loading')
+    : quota.errorCode === 'agy_unavailable'
+      ? t('err.agyLocal')
+      : code
+        ? t(`err.${code}`, { detail: quota.errorMessage || '' })
+        : quota.errorMessage;
+  const ago = quota.capturedAt ? formatCompactDuration(Date.now() - quota.capturedAt) : '';
+  const text = message ? `${message}${quota.stale ? t('quota.staleAgo', { ago }) : ''}` : '';
+  const canSignIn = quota.accountType && quota.accountType !== 'agy' && onSignIn;
+  const needsSignIn = canSignIn && (quota.errorCode === 'login_required' || quota.errorCode === 'login_expired');
+  const canRetry = onRetry && (quota.errorCode === 'read_failed' || quota.errorCode === 'offline') && windows.length === 0;
+  const tone = loading || quota.status === 'unconfigured' ? 'info' : quota.status === 'error' ? 'danger' : undefined;
 
   return (
     <article className="panel provider-card" style={{ '--pc': visuals.pc } as React.CSSProperties}>
@@ -91,30 +104,36 @@ export const QuotaCard: React.FC<QuotaCardProps> = ({ quota, includeAgyClaude = 
 
       <div className="quota-body">
         {text && (
-          <div className="callout" data-tone={quota.status === 'error' ? 'danger' : quota.status === 'unconfigured' ? 'info' : undefined}>
-            <Icon name={quota.status === 'unconfigured' ? 'info' : 'alert'} size={15} />
+          <div className="callout" data-tone={tone} role={loading ? 'status' : undefined}>
+            {loading
+              ? <Icon name="refresh" size={15} className="is-spinning" />
+              : <Icon name={tone === 'info' ? 'info' : 'alert'} size={15} />}
             <span>{text}</span>
           </div>
         )}
         {needsSignIn && (
           <button type="button" className="btn btn-sm btn-primary" onClick={() => onSignIn!(quota.accountType!)}>
-            {t('quota.signIn')}
+            {quota.errorCode === 'login_expired' ? t('quota.reSignIn') : t('quota.signIn')}
           </button>
+        )}
+        {canRetry && (
+          <button type="button" className="btn btn-sm" onClick={onRetry}>{t('quota.retry')}</button>
         )}
         {windows.length > 0 && (
           <div
             className="gauge"
+            data-stale={quota.stale ? 'true' : undefined}
             data-count={windows.length}
             style={{ '--cols': windows.length === 4 ? 2 : Math.min(windows.length, 3) } as React.CSSProperties}
           >
-            {windows.map((win, idx) => <Battery key={`${win.label}-${idx}`} window={win} />)}
+            {windows.map((win, idx) => <Battery key={`${win.label}-${idx}`} window={win} thresholds={thresholds} />)}
           </div>
         )}
         {windows.length === 0 && !text && <p className="hint">{t('quota.noData')}</p>}
       </div>
 
       <footer className="provider-foot">
-        <span>{quota.capturedAt ? t('quota.readAt', { time: new Date(quota.capturedAt).toLocaleTimeString(locale) }) : t('quota.noReading')}</span>
+        <span>{quota.capturedAt ? t('quota.readAt', { time: new Date(quota.capturedAt).toLocaleTimeString(locale) }) : loading ? '—' : t('quota.noReading')}</span>
         {onEdit && quota.accountCardId && (
           <span className="actions">
             <button type="button" className="text-link" onClick={() => onEdit(quota)}>{t('quota.edit')}</button>

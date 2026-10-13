@@ -53,3 +53,34 @@
 
 @media (max-width: 900px) { .settings-grid { grid-template-columns: 1fr; } }
 @media (max-width: 560px) { .path-control { flex-wrap: wrap; } .path-control .btn { width: 100%; } }
+
+/* ===== Battery threshold slider ===== */
+.threshold { display: grid; gap: 12px; padding-top: 18px; }
+.threshold-track {
+  position: relative; height: 28px; margin: 6px 12px 0; border-radius: 10px;
+  background: linear-gradient(90deg, var(--danger) 0 var(--low), var(--warning) var(--low) var(--warning-pos), var(--good) var(--warning-pos) 100%);
+  box-shadow: inset 0 1px 0 rgb(255 255 255 / 35%), 0 0 0 1px var(--edge);
+}
+.threshold-handle {
+  position: absolute; top: -8px; bottom: -8px; width: 28px; margin-left: -14px; padding: 0; border: 0; background: none;
+  cursor: ew-resize; touch-action: none; outline: none;
+}
+.threshold-handle:disabled { cursor: default; opacity: .6; }
+.threshold-thumb {
+  position: absolute; left: 50%; top: 0; bottom: 0; width: 8px; transform: translateX(-50%); border-radius: 6px;
+  background: #fff; box-shadow: 0 1px 4px rgb(0 0 0 / 35%), 0 0 0 1px rgb(0 0 0 / 12%);
+}
+.threshold-handle:focus-visible .threshold-thumb { box-shadow: 0 0 0 3px color-mix(in srgb, var(--accent) 55%, transparent), 0 1px 4px rgb(0 0 0 / 35%); }
+.threshold-value {
+  position: absolute; left: 50%; top: -22px; transform: translateX(-50%); color: var(--muted);
+  font-size: 11.5px; font-variant-numeric: tabular-nums; white-space: nowrap;
+}
+.threshold[data-dragging] .threshold-thumb { transform: translateX(-50%) scaleY(1.06); }
+.threshold-legend { display: flex; flex-wrap: wrap; gap: 6px 18px; margin: 0; padding: 0; list-style: none; color: var(--muted); font-size: 12px; }
+.threshold-legend li { display: inline-flex; align-items: center; gap: 6px; }
+.threshold-legend i { width: 9px; height: 9px; border-radius: 50%; background: var(--good); }
+.threshold-legend li[data-tone="low"] i { background: var(--danger); }
+.threshold-legend li[data-tone="warning"] i { background: var(--warning); }
+
+.refresh-control { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+.refresh-control .input { width: 96px; }

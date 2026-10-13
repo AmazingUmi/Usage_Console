@@ -73,6 +73,9 @@ export async function fetchSettings(signal?: AbortSignal): Promise<ConsoleSettin
 
 export async function saveSettings(body: {
   hideAgyClaude?: boolean;
+  quotaBatteryWarning?: number;
+  quotaBatteryLow?: number;
+  quotaRefreshIntervalSeconds?: number;
   paths?: Partial<PathSettings>;
   accounts?: ConsoleAccount[];
   dataDir?: string;

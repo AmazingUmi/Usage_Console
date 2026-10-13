@@ -7,7 +7,7 @@ import { CONFIG } from './config.js';
 import { L, langMiddleware } from './i18n.js';
 import { findAgyBinary } from './quota/agy.js';
 import { loadSettings, resolveDataDir, saveSettings, settingsView } from './settings.js';
-import { queryAllLiveQuotas } from './quota/oauth.js';
+import { queryAllLiveQuotas, quotaAgeMs } from './quota/oauth.js';
 import { usageStore } from './usage/store.js';
 import type { UsageRange } from './usage/types.js';
 import { calibrateData } from './data/calibrate.js';
@@ -38,11 +38,24 @@ queryAllLiveQuotas().then(() => {
   console.warn('[Quota] Initial quota check warning:', err.message);
 });
 
-// Auto-sync usage & quota periodically (every 120s)
+// Local usage is cheap to rescan, so it keeps a fixed cadence.
 setInterval(() => {
   usageStore.sync().catch(() => {});
-  queryAllLiveQuotas(true).catch(() => {});
 }, 120 * 1000);
+
+// Quota polling follows the "refresh interval" setting (0 = manual only) and is re-armed when it changes.
+let quotaTimer: NodeJS.Timeout | null = null;
+function scheduleQuotaPoll(): void {
+  if (quotaTimer) clearTimeout(quotaTimer);
+  quotaTimer = null;
+  const seconds = loadSettings().quotaRefreshIntervalSeconds;
+  if (seconds <= 0) return;
+  quotaTimer = setTimeout(() => {
+    queryAllLiveQuotas(true).catch(() => {}).finally(scheduleQuotaPoll);
+  }, seconds * 1000);
+  quotaTimer.unref();
+}
+scheduleQuotaPoll();
 
 // API Routes
 app.get('/api/health', (_req, res) => {
@@ -54,6 +67,8 @@ app.get('/api/quota', async (req, res) => {
   try {
     const force = req.query.force === 'true';
     const quotaState = await queryAllLiveQuotas(force);
+    const seconds = loadSettings().quotaRefreshIntervalSeconds;
+    if (!force && seconds > 0 && quotaAgeMs() > seconds * 1500) queryAllLiveQuotas(true).catch(() => {});
     res.json(quotaState);
   } catch (err) {
     res.json({
@@ -326,6 +341,7 @@ app.put('/api/settings', async (req, res) => {
     saveSettings(req.body ?? {});
     const nextDataDir = resolveDataDir();
     if (previousDataDir !== nextDataDir) copyDataIfMissing(previousDataDir, nextDataDir);
+    scheduleQuotaPoll();
     const pathsChanged = JSON.stringify(loadSettings().paths) !== before;
     if (pathsChanged || req.body?.rescan === true || previousDataDir !== nextDataDir) await calibrateData();
     const quota = pathsChanged ? await queryAllLiveQuotas(true) : null;

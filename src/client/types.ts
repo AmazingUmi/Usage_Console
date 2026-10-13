@@ -15,8 +15,8 @@ export interface ProviderQuota {
   displayName: string;
   plan?: string;
   capturedAt: number;
-  status: 'ok' | 'warning' | 'error' | 'unconfigured';
-  errorCode?: 'login_required' | 'login_expired' | 'no_subscription' | 'rate_limited' | 'read_failed' | 'agy_unavailable';
+  status: 'ok' | 'warning' | 'error' | 'unconfigured' | 'loading';
+  errorCode?: 'login_required' | 'login_expired' | 'no_subscription' | 'rate_limited' | 'read_failed' | 'agy_unavailable' | 'offline';
   errorMessage?: string;
   windows?: QuotaWindow[];
   groups?: QuotaGroup[];
@@ -144,6 +144,9 @@ export interface ScanSourceStatus {
 
 export interface ConsoleSettings {
   hideAgyClaude: boolean;
+  quotaBatteryWarning: number;
+  quotaBatteryLow: number;
+  quotaRefreshIntervalSeconds: number;
   paths: PathSettings;
   defaults: PathSettings;
   resolved: PathSettings;

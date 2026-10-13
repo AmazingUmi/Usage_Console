@@ -25,6 +25,11 @@ export interface ConsoleAccount {
 
 export interface StoredSettings {
   hideAgyClaude: boolean;
+  /** Remaining-percent boundaries for battery colours: at or below `low` is red, below `warning` is amber. */
+  quotaBatteryWarning: number;
+  quotaBatteryLow: number;
+  /** Seconds between automatic quota reads; 0 means manual refresh only. */
+  quotaRefreshIntervalSeconds: number;
   paths: PathSettings;
   accounts: ConsoleAccount[];
   dataDir: string;
@@ -76,8 +81,32 @@ export function defaultDataDir(): string {
   return path.join(os.homedir(), '.usage-console');
 }
 
+export const DEFAULT_BATTERY = { warning: 50, low: 10 } as const;
+export const DEFAULT_REFRESH_SECONDS = 120;
+const MIN_REFRESH_SECONDS = 30;
+const MAX_REFRESH_SECONDS = 3600;
+
 function emptySettings(): StoredSettings {
-  return { hideAgyClaude: true, paths: { ...EMPTY_PATHS }, accounts: [], dataDir: '' };
+  return {
+    hideAgyClaude: true,
+    quotaBatteryWarning: DEFAULT_BATTERY.warning,
+    quotaBatteryLow: DEFAULT_BATTERY.low,
+    quotaRefreshIntervalSeconds: DEFAULT_REFRESH_SECONDS,
+    paths: { ...EMPTY_PATHS },
+    accounts: [],
+    dataDir: '',
+  };
+}
+
+function validBattery(warning: unknown, low: unknown): boolean {
+  return typeof warning === 'number' && typeof low === 'number'
+    && Number.isFinite(warning) && Number.isFinite(low)
+    && low >= 0 && warning <= 100 && low < warning;
+}
+
+function validRefresh(value: unknown): value is number {
+  return typeof value === 'number' && Number.isInteger(value)
+    && (value === 0 || (value >= MIN_REFRESH_SECONDS && value <= MAX_REFRESH_SECONDS));
 }
 
 function sanitizeAccounts(input: unknown): ConsoleAccount[] {
@@ -118,6 +147,10 @@ export function loadSettings(): StoredSettings {
     const parsed = JSON.parse(raw) as Partial<StoredSettings>;
     storedCache = {
       hideAgyClaude: parsed.hideAgyClaude !== false,
+      ...(validBattery(parsed.quotaBatteryWarning, parsed.quotaBatteryLow)
+        ? { quotaBatteryWarning: parsed.quotaBatteryWarning!, quotaBatteryLow: parsed.quotaBatteryLow! }
+        : { quotaBatteryWarning: DEFAULT_BATTERY.warning, quotaBatteryLow: DEFAULT_BATTERY.low }),
+      quotaRefreshIntervalSeconds: validRefresh(parsed.quotaRefreshIntervalSeconds) ? parsed.quotaRefreshIntervalSeconds : DEFAULT_REFRESH_SECONDS,
       paths: sanitizeStoredPaths(parsed.paths),
       accounts: sanitizeAccounts(parsed.accounts),
       dataDir: typeof parsed.dataDir === 'string' ? parsed.dataDir.trim() : '',
@@ -220,6 +253,9 @@ export function resolveDataDir(): string {
 
 export function saveSettings(patch: {
   hideAgyClaude?: boolean;
+  quotaBatteryWarning?: number;
+  quotaBatteryLow?: number;
+  quotaRefreshIntervalSeconds?: number;
   paths?: Partial<PathSettings>;
   accounts?: ConsoleAccount[];
   dataDir?: string;
@@ -232,8 +268,20 @@ export function saveSettings(patch: {
       if (patch.paths[key] !== undefined) nextPaths[key] = toOverride(patch.paths[key], defaults[key]);
     }
   }
+  const warning = patch.quotaBatteryWarning ?? current.quotaBatteryWarning;
+  const low = patch.quotaBatteryLow ?? current.quotaBatteryLow;
+  if (!validBattery(warning, low)) {
+    throw new Error(L('电池阈值无效：需满足 0 ≤ 低 < 警告 ≤ 100', 'Invalid battery thresholds: need 0 ≤ low < warning ≤ 100'));
+  }
+  const refresh = patch.quotaRefreshIntervalSeconds ?? current.quotaRefreshIntervalSeconds;
+  if (!validRefresh(refresh)) {
+    throw new Error(L('刷新间隔无效：填 0（关闭）或 30–3600 秒的整数', 'Invalid refresh interval: use 0 (off) or a whole number from 30 to 3600 seconds'));
+  }
   const next: StoredSettings = {
     hideAgyClaude: typeof patch.hideAgyClaude === 'boolean' ? patch.hideAgyClaude : current.hideAgyClaude,
+    quotaBatteryWarning: warning,
+    quotaBatteryLow: low,
+    quotaRefreshIntervalSeconds: refresh,
     paths: nextPaths,
     accounts: patch.accounts ? sanitizeAccounts(patch.accounts) : current.accounts,
     dataDir: patch.dataDir !== undefined
@@ -276,6 +324,9 @@ export function settingsView(scan: ScanReport) {
   };
   return {
     hideAgyClaude: stored.hideAgyClaude,
+    quotaBatteryWarning: stored.quotaBatteryWarning,
+    quotaBatteryLow: stored.quotaBatteryLow,
+    quotaRefreshIntervalSeconds: stored.quotaRefreshIntervalSeconds,
     paths: display,
     defaults,
     resolved,
