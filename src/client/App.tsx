@@ -3,9 +3,12 @@ import { Header } from './components/Header';
 import { QuotaCard } from './components/QuotaCard';
 import { OverviewDashboard } from './components/OverviewDashboard';
 import { UsageDetailSection } from './components/UsageDetailSection';
-import { fetchQuota, refreshQuota, fetchUsageOverview, syncUsage, trendDaysFor } from './api';
-import { withProviderPlaceholders } from './lib/providers';
+import { SettingsPage } from './components/SettingsPage';
+import { EditAccountDialog } from './components/EditAccountDialog';
+import { fetchQuota, refreshQuota, fetchUsageOverview, fetchSettings, syncUsage, trendDaysFor } from './api';
+import { quotaCardsForAccounts } from './lib/providers';
 import type {
+  ConsoleSettings,
   QuotaState,
   UsageSummary,
   DailyTrendPoint,
@@ -33,7 +36,9 @@ export const App: React.FC = () => {
   const [error, setError] = useState<string | null>(null);
   const [connectionState, setConnectionState] = useState<ConnectionState>('connecting');
   const [lastUpdated, setLastUpdated] = useState<number | undefined>(undefined);
-  const [includeAgyClaude, setIncludeAgyClaude] = useState(false);
+  const [settings, setSettings] = useState<ConsoleSettings | null>(null);
+  const [settingsOpen, setSettingsOpen] = useState(false);
+  const [editingQuota, setEditingQuota] = useState<import('./types').ProviderQuota | null>(null);
 
   const applyUsageOverview = useCallback((data: Awaited<ReturnType<typeof fetchUsageOverview>>) => {
     setSummary(data.summary);
@@ -57,12 +62,11 @@ export const App: React.FC = () => {
     }
   }, []);
 
-  const loadUsage = useCallback(async (currentRange: UsageRange, excludeAgyClaude: boolean, signal?: AbortSignal) => {
+  const loadUsage = useCallback(async (currentRange: UsageRange, signal?: AbortSignal) => {
     try {
       setError(null);
       const data = await fetchUsageOverview(currentRange, {
         days: trendDaysFor(currentRange),
-        excludeAgyClaude,
         signal,
       });
       if (signal?.aborted) return;
@@ -87,9 +91,19 @@ export const App: React.FC = () => {
   useEffect(() => {
     const controller = new AbortController();
     setIsLoadingUsage(true);
-    loadUsage(range, !includeAgyClaude, controller.signal);
+    loadUsage(range, controller.signal);
     return () => controller.abort();
-  }, [range, includeAgyClaude, loadUsage]);
+  }, [range, loadUsage]);
+
+  useEffect(() => {
+    const controller = new AbortController();
+    fetchSettings(controller.signal)
+      .then(setSettings)
+      .catch((err) => {
+        if (!isAbortError(err)) console.error('Failed to load settings:', err);
+      });
+    return () => controller.abort();
+  }, []);
 
   const handleRefresh = async () => {
     setIsRefreshing(true);
@@ -99,7 +113,9 @@ export const App: React.FC = () => {
       if (quotaResult.status === 'fulfilled') {
         setQuotaState(quotaResult.value);
       }
-      await loadUsage(range, !includeAgyClaude);
+      await loadUsage(range);
+      const nextSettings = await fetchSettings().catch(() => null);
+      if (nextSettings) setSettings(nextSettings);
     } catch (err) {
       console.error('Refresh failed:', err);
       setConnectionState('offline');
@@ -110,8 +126,17 @@ export const App: React.FC = () => {
 
   const providerList = useMemo(() => {
     const live = quotaState?.providers ? Object.values(quotaState.providers) : [];
-    return withProviderPlaceholders(live);
-  }, [quotaState]);
+    return quotaCardsForAccounts(live, settings?.accounts ?? []);
+  }, [quotaState, settings]);
+
+  const openSettings = () => {
+    setSettingsOpen(true);
+    window.requestAnimationFrame(() => {
+      document.getElementById('settings-title')?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+    });
+  };
+
+  const hideAgyClaude = settings?.hideAgyClaude ?? true;
 
   return (
     <>
@@ -121,6 +146,11 @@ export const App: React.FC = () => {
         isRefreshing={isRefreshing}
         connectionState={connectionState}
         lastUpdated={lastUpdated}
+        settingsOpen={settingsOpen}
+        onToggleSettings={() => {
+          if (settingsOpen) setSettingsOpen(false);
+          else openSettings();
+        }}
       />
 
       <main id="main" className="shell" tabIndex={-1}>
@@ -146,22 +176,34 @@ export const App: React.FC = () => {
                   <summary aria-label="额度与金额口径">?</summary>
                   <div className="help-content">
                     <strong>额度与金额口径</strong>
-                    <p>展示各服务商当前登录账号的周期配额。未配置的平台会显示占位卡，避免页面空白。</p>
+                    <p>只显示在设置里添加的账户。未添加的类型不会占位。</p>
                   </div>
                 </details>
               </div>
             </div>
           </div>
 
-          <div id="provider-grid" className="provider-grid">
-            {providerList.map((quota) => (
-              <QuotaCard
-                key={`${quota.provider}-${quota.displayName}`}
-                quota={quota}
-                includeAgyClaude={includeAgyClaude}
-              />
-            ))}
-          </div>
+          {providerList.length === 0 ? (
+            <div className="panel loading-panel">
+              <p className="hint">
+                {settings ? '还没有添加账户，额度卡不会占位。' : '正在读取账户设置…'}
+                {settings && (
+                  <button type="button" className="text-link" onClick={openSettings}>去设置添加</button>
+                )}
+              </p>
+            </div>
+          ) : (
+            <div id="provider-grid" className="provider-grid">
+              {providerList.map((quota, index) => (
+                <QuotaCard
+                  key={`${quota.accountCardId || quota.provider}-${index}`}
+                  quota={quota}
+                  includeAgyClaude={!hideAgyClaude}
+                  onEdit={setEditingQuota}
+                />
+              ))}
+            </div>
+          )}
         </section>
 
         <section className="section" aria-labelledby="overview-title">
@@ -172,7 +214,7 @@ export const App: React.FC = () => {
                 <summary aria-label="关于数据">?</summary>
                 <div className="help-content">
                   <strong>关于用量数据</strong>
-                  <p>自动聚合本地已有的会话日志与账本，费用按公开 API 标价折算估算。切换时间范围不会重复拉取额度。</p>
+                  <p>自动聚合本地会话日志，费用按公开 API 标价折算估算。切换时间范围不会重复拉取额度。</p>
                 </div>
               </details>
             </div>
@@ -187,8 +229,6 @@ export const App: React.FC = () => {
               clients={clients}
               range={range}
               onRangeChange={setRange}
-              includeAgyClaude={includeAgyClaude}
-              onIncludeAgyClaudeChange={setIncludeAgyClaude}
             />
           ) : (
             <div className="panel loading-panel">
@@ -202,6 +242,23 @@ export const App: React.FC = () => {
           clients={clients}
           providers={providers}
           records={records}
+        />
+
+        <SettingsPage
+          open={settingsOpen}
+          onToggle={() => setSettingsOpen((value) => !value)}
+          settings={settings}
+          onSaved={(next, quota) => {
+            setSettings(next);
+            if (quota) setQuotaState(quota);
+            loadUsage(range);
+          }}
+        />
+        <EditAccountDialog
+          key={editingQuota?.accountCardId || 'none'}
+          quota={editingQuota}
+          onClose={() => setEditingQuota(null)}
+          onSaved={(next) => setSettings(next)}
         />
       </main>
 

@@ -2,8 +2,9 @@ import fs from 'node:fs/promises';
 import fsSync from 'node:fs';
 import path from 'node:path';
 import { CONFIG } from '../config.js';
-import type { TokenUsageRecord, UsageSummary, DailyTrendPoint, GroupedUsage, UsageRange } from './types.js';
+import type { TokenUsageRecord, UsageSummary, DailyTrendPoint, GroupedUsage, UsageRange, ScanReport, ScanSourceStatus } from './types.js';
 import { estimateCost } from './pricing.js';
+import { scanClaudeConversations } from './claude-sessions.js';
 
 function toEpoch(value: unknown, fallback = Date.now()): number {
   if (typeof value === 'number' && Number.isFinite(value)) {
@@ -32,7 +33,7 @@ export function isAgyClaudeRecord(record: TokenUsageRecord): boolean {
 }
 
 function shouldExcludeAgyClaude(options?: UsageQueryOptions): boolean {
-  return options?.excludeAgyClaude !== false;
+  return options?.excludeAgyClaude === true;
 }
 
 function localDateKey(date: Date): string {
@@ -71,6 +72,11 @@ class UsageStore {
   private records: TokenUsageRecord[] = [];
   private lastSyncTime = 0;
   private inflightSync: Promise<number> | null = null;
+  private scanSources: ScanSourceStatus[] = [];
+
+  private noteSource(status: ScanSourceStatus): void {
+    this.scanSources = this.scanSources.filter((item) => item.id !== status.id).concat(status);
+  }
 
   public async sync(): Promise<number> {
     if (this.inflightSync) return this.inflightSync;
@@ -88,11 +94,13 @@ class UsageStore {
   private async runSync(): Promise<number> {
     const loadedRecords: TokenUsageRecord[] = [];
     const seenSignatures = new Set<string>();
+    this.scanSources = [];
 
-    const addRecord = (rec: TokenUsageRecord) => {
-      if (!rec.timestamp || !Number.isFinite(rec.timestamp) || !rec.totalTokens) return;
-      const sig = `${rec.client ?? 'unknown'}_${rec.timestamp}_${rec.totalTokens}_${rec.model}`;
-      if (seenSignatures.has(sig)) return;
+    const addRecord = (rec: TokenUsageRecord): boolean => {
+      const billable = (rec.totalTokens || 0) + (rec.input || 0) + (rec.output || 0) + (rec.cacheRead || 0) + (rec.cacheWrite || 0);
+      if (!rec.timestamp || !Number.isFinite(rec.timestamp) || billable <= 0) return false;
+      const sig = rec.id || `${rec.client ?? 'unknown'}_${rec.timestamp}_${rec.totalTokens}_${rec.model}`;
+      if (seenSignatures.has(sig)) return false;
       seenSignatures.add(sig);
 
       const incomingCost = rec.estimatedCostUsd;
@@ -106,10 +114,10 @@ class UsageStore {
         ? incomingCost
         : estimateCost({ ...rec, estimatedCostUsd: undefined });
       loadedRecords.push(rec);
+      return true;
     };
 
     await Promise.all([
-      this.ingestPiLedgers(addRecord),
       this.ingestPiSessions(addRecord),
       this.ingestGrokSessions(addRecord),
       this.ingestCodexSessions(addRecord),
@@ -122,49 +130,24 @@ class UsageStore {
     return this.records.length;
   }
 
-  private async ingestPiLedgers(addRecord: (rec: TokenUsageRecord) => void): Promise<void> {
+  private async ingestPiSessions(addRecord: (rec: TokenUsageRecord) => boolean): Promise<void> {
+    const piSessionsDir = path.join(CONFIG.paths.piAgent, 'sessions');
+    const status: ScanSourceStatus = {
+      id: 'pi-session',
+      label: 'Pi 会话',
+      path: piSessionsDir,
+      exists: false,
+      filesScanned: 0,
+      records: 0,
+    };
     try {
-      const usageDir = CONFIG.paths.piUsage;
-      if (!fsSync.existsSync(usageDir)) return;
-      const files = (await fs.readdir(usageDir))
-        .filter((file) => /^usage-\d{4}-\d{2}-\d{2}\.jsonl$/.test(file))
-        .sort();
-
-      for (const file of files) {
-        try {
-          const lines = await readLines(path.join(usageDir, file));
-          for (const line of lines) {
-            if (!line.trim()) continue;
-            try {
-              const raw = JSON.parse(line) as TokenUsageRecord;
-              addRecord({
-                ...raw,
-                timestamp: toEpoch(raw.timestamp),
-                client: 'pi',
-                provider: raw.provider || 'antigravity',
-                model: raw.model || 'unknown',
-                input: raw.input || 0,
-                output: raw.output || 0,
-                reasoning: raw.reasoning || 0,
-                cacheRead: raw.cacheRead || 0,
-                cacheWrite: raw.cacheWrite || 0,
-                totalTokens: raw.totalTokens || ((raw.input || 0) + (raw.output || 0)),
-                source: raw.source || 'pi-ledger',
-              });
-            } catch {}
-          }
-        } catch {}
+      if (!fsSync.existsSync(piSessionsDir)) {
+        this.noteSource(status);
+        return;
       }
-    } catch (err) {
-      console.warn('[UsageStore] Could not read pi usage directory:', (err as Error).message);
-    }
-  }
-
-  private async ingestPiSessions(addRecord: (rec: TokenUsageRecord) => void): Promise<void> {
-    try {
-      const piSessionsDir = path.join(CONFIG.paths.piAgent, 'sessions');
-      if (!fsSync.existsSync(piSessionsDir)) return;
+      status.exists = true;
       const files = findRecentFiles(piSessionsDir, (name) => name.endsWith('.jsonl'), 400);
+      status.filesScanned = files.length;
 
       for (const filePath of files) {
         try {
@@ -175,7 +158,7 @@ class UsageStore {
               const json = JSON.parse(line);
               if (json.type !== 'message' || !json.message?.usage) continue;
               const usage = json.message.usage;
-              addRecord({
+              if (addRecord({
                 timestamp: toEpoch(json.message.timestamp || json.timestamp),
                 client: 'pi',
                 provider: json.message.provider || 'antigravity',
@@ -189,21 +172,37 @@ class UsageStore {
                 estimatedCostUsd: usage.cost?.total,
                 source: 'pi-session',
                 sessionId: filePath,
-              });
+              })) status.records += 1;
             } catch {}
           }
         } catch {}
       }
+      this.noteSource(status);
     } catch (err) {
+      status.note = (err as Error).message;
+      this.noteSource(status);
       console.warn('[UsageStore] Could not read native pi sessions:', (err as Error).message);
     }
   }
 
-  private async ingestGrokSessions(addRecord: (rec: TokenUsageRecord) => void): Promise<void> {
+  private async ingestGrokSessions(addRecord: (rec: TokenUsageRecord) => boolean): Promise<void> {
+    const grokDir = CONFIG.paths.grokSessions;
+    const status: ScanSourceStatus = {
+      id: 'grok',
+      label: 'Grok 会话',
+      path: grokDir,
+      exists: false,
+      filesScanned: 0,
+      records: 0,
+    };
     try {
-      const grokDir = path.join(CONFIG.paths.home, '.grok', 'sessions');
-      if (!fsSync.existsSync(grokDir)) return;
+      if (!fsSync.existsSync(grokDir)) {
+        this.noteSource(status);
+        return;
+      }
+      status.exists = true;
       const files = findRecentFiles(grokDir, (name) => name === 'updates.jsonl', 300);
+      status.filesScanned = files.length;
 
       for (const filePath of files) {
         try {
@@ -215,7 +214,7 @@ class UsageStore {
               if (json.params?.update?.sessionUpdate !== 'turn_completed' || !json.params?.update?.usage) continue;
               const usage = json.params.update.usage;
               const model = Object.keys(usage.modelUsage || {})[0] || 'grok-4.6-build';
-              addRecord({
+              if (addRecord({
                 timestamp: toEpoch(json.timestamp),
                 client: 'grokbuild',
                 provider: 'xai',
@@ -228,21 +227,37 @@ class UsageStore {
                 estimatedCostUsd: usage.costUsdTicks ? usage.costUsdTicks * 1e-10 : undefined,
                 source: 'grok-session',
                 sessionId: filePath,
-              });
+              })) status.records += 1;
             } catch {}
           }
         } catch {}
       }
+      this.noteSource(status);
     } catch (err) {
+      status.note = (err as Error).message;
+      this.noteSource(status);
       console.warn('[UsageStore] Could not read grok sessions:', (err as Error).message);
     }
   }
 
-  private async ingestCodexSessions(addRecord: (rec: TokenUsageRecord) => void): Promise<void> {
+  private async ingestCodexSessions(addRecord: (rec: TokenUsageRecord) => boolean): Promise<void> {
+    const codexDir = CONFIG.paths.codexSessions;
+    const status: ScanSourceStatus = {
+      id: 'codex',
+      label: 'Codex 会话',
+      path: codexDir,
+      exists: false,
+      filesScanned: 0,
+      records: 0,
+    };
     try {
-      const codexDir = CONFIG.paths.codexSessions;
-      if (!fsSync.existsSync(codexDir)) return;
+      if (!fsSync.existsSync(codexDir)) {
+        this.noteSource(status);
+        return;
+      }
+      status.exists = true;
       const files = findRecentFiles(codexDir, (name) => name.endsWith('.jsonl'), 200);
+      status.filesScanned = files.length;
 
       for (const filePath of files) {
         try {
@@ -260,7 +275,7 @@ class UsageStore {
                 continue;
               }
               const usage = json.payload.info.last_token_usage;
-              addRecord({
+              if (addRecord({
                 timestamp: toEpoch(json.timestamp),
                 client: 'codex',
                 provider: 'openai-codex',
@@ -272,52 +287,44 @@ class UsageStore {
                 totalTokens: usage.total_tokens || ((usage.input_tokens || 0) + (usage.output_tokens || 0)),
                 source: 'codex-session',
                 sessionId: filePath,
-              });
+              })) status.records += 1;
             } catch {}
           }
         } catch {}
       }
+      this.noteSource(status);
     } catch (err) {
+      status.note = (err as Error).message;
+      this.noteSource(status);
       console.warn('[UsageStore] Could not read codex sessions:', (err as Error).message);
     }
   }
 
-  private async ingestClaudeSessions(addRecord: (rec: TokenUsageRecord) => void): Promise<void> {
+  private async ingestClaudeSessions(addRecord: (rec: TokenUsageRecord) => boolean): Promise<void> {
+    const claudeDir = CONFIG.paths.claudeProjects;
+    const status: ScanSourceStatus = {
+      id: 'claude',
+      label: 'Claude 对话',
+      path: claudeDir,
+      exists: false,
+      filesScanned: 0,
+      records: 0,
+    };
     try {
-      const claudeDir = path.join(CONFIG.paths.home, '.claude', 'projects');
-      if (!fsSync.existsSync(claudeDir)) return;
-      const files = findRecentFiles(claudeDir, (name) => name.endsWith('.jsonl'), 300);
-
-      for (const filePath of files) {
-        try {
-          const lines = await readLines(filePath);
-          for (const line of lines) {
-            if (!line.trim()) continue;
-            try {
-              const json = JSON.parse(line);
-              if (!json.message?.usage) continue;
-              const usage = json.message.usage;
-              const input = usage.input_tokens || 0;
-              const output = usage.output_tokens || 0;
-              addRecord({
-                timestamp: toEpoch(json.timestamp),
-                client: 'claude',
-                provider: 'anthropic',
-                model: json.message.model || 'claude-3-5-sonnet',
-                input,
-                output,
-                reasoning: usage.output_tokens_details?.thinking_tokens || 0,
-                cacheRead: usage.cache_read_input_tokens || 0,
-                cacheWrite: usage.cache_creation_input_tokens || 0,
-                totalTokens: input + output,
-                source: 'claude-session',
-                sessionId: filePath,
-              });
-            } catch {}
-          }
-        } catch {}
+      const scanned = scanClaudeConversations(claudeDir);
+      status.exists = scanned.exists;
+      status.filesScanned = scanned.filesScanned;
+      for (const record of scanned.records) {
+        if (addRecord(record)) status.records += 1;
       }
+      const notes = ['按消息去重，含主会话与子代理'];
+      if (scanned.truncated) notes.push(`仅保留最近 ${scanned.filesScanned} 个文件`);
+      if (scanned.errors > 0) notes.push(`${scanned.errors} 个文件读取失败`);
+      status.note = notes.join('；');
+      this.noteSource(status);
     } catch (err) {
+      status.note = (err as Error).message;
+      this.noteSource(status);
       console.warn('[UsageStore] Could not read claude sessions:', (err as Error).message);
     }
   }
@@ -403,6 +410,9 @@ class UsageStore {
         totalTokens: 0,
         inputTokens: 0,
         outputTokens: 0,
+        cacheReadTokens: 0,
+        cacheWriteTokens: 0,
+        reasoningTokens: 0,
         estimatedCostUsd: 0,
         requestCount: 0,
       });
@@ -415,6 +425,9 @@ class UsageStore {
       point.totalTokens += record.totalTokens || 0;
       point.inputTokens += record.input || 0;
       point.outputTokens += record.output || 0;
+      point.cacheReadTokens += record.cacheRead || 0;
+      point.cacheWriteTokens += record.cacheWrite || 0;
+      point.reasoningTokens += record.reasoning || 0;
       point.estimatedCostUsd += record.estimatedCostUsd || 0;
       point.requestCount += 1;
     }
@@ -474,8 +487,25 @@ class UsageStore {
     return source.slice(0, Math.min(200, Math.max(1, limit)));
   }
 
+  public getAllRecords(): TokenUsageRecord[] {
+    return this.records;
+  }
+
+  public replaceRecords(records: TokenUsageRecord[], syncedAt = Date.now()): void {
+    this.records = records;
+    this.lastSyncTime = syncedAt;
+  }
+
   public getLastSyncTime(): number {
     return this.lastSyncTime;
+  }
+
+  public getScanReport(): ScanReport {
+    return {
+      lastSyncTime: this.lastSyncTime,
+      recordCount: this.records.length,
+      sources: this.scanSources,
+    };
   }
 }
 

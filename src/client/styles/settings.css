@@ -1,0 +1,75 @@
+/* ===== Settings page ===== */
+.settings-heading-btn {
+  display: inline-flex; align-items: center; gap: 10px;
+  min-height: 0; padding: 0; border: 0; background: transparent; box-shadow: none;
+  color: var(--text); font-size: 22px; font-weight: 700; letter-spacing: -.02em;
+}
+.settings-heading-btn span {
+  height: 28px; padding: 0 10px; border-radius: var(--r-pill);
+  background: var(--fill-2); color: var(--muted); font-size: 12px; font-weight: 650; line-height: 28px;
+}
+.settings-heading-btn[aria-expanded="true"] span { color: var(--text); }
+.text-link {
+  min-height: 0; margin-left: 8px; padding: 0; border: 0; background: transparent; box-shadow: none;
+  color: var(--accent); font-size: inherit; font-weight: 650;
+}
+.modal-backdrop {
+  position: fixed; inset: 0; z-index: 40; display: grid; place-items: center; padding: 24px;
+  background: rgb(8 12 20 / 42%);
+}
+.modal-card {
+  width: min(520px, 100%); display: flex; flex-direction: column; gap: 12px; padding: 22px;
+  border-radius: var(--r-card); background: var(--fill-3); border: 1px solid var(--stroke);
+  box-shadow: var(--shadow-pop);
+}
+.modal-actions, .login-box { display: flex; flex-wrap: wrap; justify-content: flex-end; gap: 8px; }
+.login-box { justify-content: flex-start; }
+.settings-notes { height: auto; padding: 10px 14px; border-radius: 16px; font-family: var(--font); }
+.account-list, .account-add { display: flex; flex-direction: column; gap: 10px; }
+.account-list li, .account-add { display: flex; align-items: center; gap: 8px; }
+.account-list li .settings-input, .account-add .settings-input { flex: 1; }
+.settings-grid { display: grid; gap: 16px; }
+.settings-card { display: flex; flex-direction: column; gap: 16px; }
+.settings-card h3 { font-size: 16px; }
+.settings-card-head { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
+.settings-row { display: flex; align-items: center; justify-content: space-between; gap: 16px; }
+.settings-switch {
+  display: inline-flex; align-items: center; gap: 8px; height: 38px; padding: 0 16px;
+  border-radius: var(--r-pill); color: var(--muted); font-size: 12.5px; font-weight: 650;
+}
+.settings-switch i { width: 8px; height: 8px; border-radius: 50%; background: var(--muted); }
+.settings-switch.active { color: var(--text); }
+.settings-switch.active i { background: var(--accent); box-shadow: 0 0 0 3px var(--accent-soft); }
+
+.path-list { display: flex; flex-direction: column; gap: 16px; }
+.path-field { display: flex; flex-direction: column; gap: 6px; }
+.path-label { display: flex; align-items: center; justify-content: space-between; gap: 12px; font-weight: 650; }
+.path-label em {
+  font-style: normal; color: var(--danger); font-size: 11.5px; font-weight: 600;
+}
+.path-label em[data-ready="true"] { color: var(--accent); }
+.path-control { display: flex; align-items: center; gap: 8px; }
+.settings-input {
+  flex: 1; min-width: 0; height: 38px; padding: 0 14px;
+  border: 1px solid var(--stroke); border-radius: var(--r-pill);
+  background: var(--fill-2); color: var(--text);
+  box-shadow: inset 0 1px 0 var(--hairline), 0 0 0 .5px var(--edge);
+  font: 12.5px/1 var(--mono);
+}
+.settings-input:focus { outline: 2px solid var(--accent); outline-offset: 2px; }
+.settings-note { color: var(--accent); font-size: 12.5px; }
+
+.scan-summary { margin-top: -6px; }
+.scan-list { display: flex; flex-direction: column; gap: 12px; }
+.scan-list li { display: flex; flex-direction: column; gap: 4px; padding-top: 12px; border-top: 1px solid var(--edge); }
+.scan-list li:first-child { padding-top: 0; border-top: 0; }
+.scan-list li > div { display: flex; align-items: baseline; justify-content: space-between; gap: 12px; }
+.scan-list span { color: var(--muted); font-size: 12px; font-variant-numeric: tabular-nums; }
+.scan-list code {
+  color: var(--muted); font: 11.5px/1.5 var(--mono); overflow-wrap: anywhere;
+}
+
+@media (max-width: 720px) {
+  .settings-card-head, .settings-row, .path-control, .account-list li, .account-add { flex-wrap: wrap; }
+  .settings-card-head .button-primary, .path-control button, .account-add .button-primary { width: 100%; }
+}

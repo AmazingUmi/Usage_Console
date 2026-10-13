@@ -1,0 +1,109 @@
+/*
+ * Design tokens. Raw colours, radii, blur and shadows live here and nowhere else.
+ *
+ * Glass is built from three fill levels on top of one mesh-gradient canvas:
+ *   --fill-1  cards and the header capsule   (most transparent, blurred)
+ *   --fill-2  chips, selects, buttons, tabs  (sits on a card, no extra blur)
+ *   --fill-3  popovers and pickers           (most opaque, blurred)
+ */
+:root {
+  color-scheme: light dark;
+  --font: -apple-system, BlinkMacSystemFont, "SF Pro Text", "PingFang SC", "Microsoft YaHei", "Noto Sans CJK SC", sans-serif;
+  --mono: ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+
+  /* text */
+  --text: #141a26;
+  --muted: #5a6578;
+
+  /* canvas */
+  --bg: #edf0f6;
+  --mesh-a: #cfe3f2;
+  --mesh-b: #dcd6f4;
+  --mesh-c: #c8ece6;
+
+  /* brand */
+  --accent: #0b8497;
+  --accent-hi: #2bb6c7;
+  --accent-hover: #08707f;
+  --accent-contrast: #fff;
+  --accent-soft: rgb(11 132 151 / 12%);
+
+  /* providers: OpenAI graphite · Claude terracotta · Grok ink · Antigravity azure */
+  --gray: #586272;
+  --chart-secondary: #cf6a43;
+  --grok: #252a33;
+  --agy: #2f7df4;
+
+  /* quota levels */
+  --warning: #c2700a;
+  --danger: #d92d3a;
+
+  /* glass */
+  --fill-1: rgb(255 255 255 / 52%);
+  --fill-2: rgb(255 255 255 / 74%);
+  --fill-3: rgb(255 255 255 / 90%);
+  --fill-inset: rgb(120 140 170 / 13%);
+  --fill-hover: rgb(120 140 170 / 16%);
+  --hairline: rgb(255 255 255 / 80%);
+  --stroke: rgb(255 255 255 / 62%);
+  --edge: rgb(90 110 150 / 22%);
+  --track: #dbe2ec;
+  --solid: #fff;
+  --solid-2: #f1f4f9;
+  --shadow-card: 0 8px 30px rgb(40 60 110 / 10%), 0 1px 2px rgb(40 60 110 / 8%);
+  --shadow-pop: 0 18px 48px rgb(20 30 60 / 22%);
+  --shadow-thumb: 0 1px 4px rgb(20 40 90 / 16%);
+  --blur: blur(24px) saturate(180%);
+  --blur-pop: blur(32px) saturate(180%);
+
+  /* shape & motion */
+  --r-card: 26px;
+  --r-inner: 18px;
+  --r-pill: 999px;
+  --ease: cubic-bezier(.32, .72, 0, 1);
+  --gutter: 32px;
+  --provider-columns: 4;
+}
+
+@media (prefers-color-scheme: dark) {
+  :root {
+    --text: #e9eef6;
+    --muted: #9ba8bc;
+    --bg: #0a0f16;
+    --mesh-a: #12394a;
+    --mesh-b: #2c2656;
+    --mesh-c: #0e3d3b;
+
+    --accent: #4cc9d8;
+    --accent-hi: #86e3ec;
+    --accent-hover: #86e3ec;
+    --accent-contrast: #04252b;
+    --accent-soft: rgb(76 201 216 / 16%);
+
+    --gray: #bcc4d1;
+    --chart-secondary: #f0a07a;
+    --grok: #e8ebf0;
+    --agy: #6aa6ff;
+    --warning: #f5b84a;
+    --danger: #f87171;
+
+    --fill-1: rgb(30 38 54 / 55%);
+    --fill-2: rgb(255 255 255 / 9%);
+    --fill-3: rgb(28 36 50 / 92%);
+    --fill-inset: rgb(255 255 255 / 7%);
+    --fill-hover: rgb(255 255 255 / 11%);
+    --hairline: rgb(255 255 255 / 14%);
+    --stroke: rgb(255 255 255 / 10%);
+    --edge: rgb(255 255 255 / 12%);
+    --track: #2b3747;
+    --solid: #161e28;
+    --solid-2: #1b2531;
+    --shadow-card: 0 8px 32px rgb(0 0 0 / 35%);
+    --shadow-pop: 0 18px 48px rgb(0 0 0 / 50%);
+    --shadow-thumb: 0 1px 4px rgb(0 0 0 / 40%);
+  }
+}
+
+@media (max-width: 1200px) { :root { --provider-columns: 2; } }
+@media (max-width: 850px)  { :root { --gutter: 20px; } }
+@media (max-width: 680px)  { :root { --provider-columns: 1; --gutter: 14px; } }

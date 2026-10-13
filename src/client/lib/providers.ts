@@ -1,41 +1,75 @@
-import type { ProviderQuota } from '../types';
+import type { AccountType, ConsoleAccount, ProviderQuota } from '../types';
 
-const PROVIDER_SLOTS = [
-  { provider: 'codex', displayName: 'OpenAI Codex', match: /codex|openai/i },
-  { provider: 'claude', displayName: 'Claude', match: /claude|anthropic/i },
-  { provider: 'grok', displayName: 'xAI Grok', match: /grok|xai/i },
-  { provider: 'antigravity', displayName: 'Antigravity', match: /antigravity|gemini|google/i },
-] as const;
+const TYPE_MATCH: Record<AccountType, RegExp> = {
+  gpt: /codex|openai|gpt/i,
+  claude: /claude|anthropic/i,
+  grok: /grok|xai/i,
+  agy: /antigravity|gemini|google/i,
+};
 
-function matchesSlot(quota: ProviderQuota, slot: (typeof PROVIDER_SLOTS)[number]): boolean {
-  return slot.match.test(quota.provider) || slot.match.test(quota.displayName);
+const TYPE_PROVIDER: Record<AccountType, string> = {
+  gpt: 'codex',
+  claude: 'claude',
+  grok: 'grok',
+  agy: 'antigravity',
+};
+
+export const ACCOUNT_TYPE_LABEL: Record<AccountType, string> = {
+  gpt: 'GPT',
+  claude: 'Claude',
+  grok: 'Grok',
+  agy: 'AGY',
+};
+
+function matchesType(quota: ProviderQuota, type: AccountType): boolean {
+  return TYPE_MATCH[type].test(quota.provider) || TYPE_MATCH[type].test(quota.displayName);
 }
 
-export function withProviderPlaceholders(providers: ProviderQuota[]): ProviderQuota[] {
-  const extras: ProviderQuota[] = [];
-  const ordered: ProviderQuota[] = [];
+/** Only accounts explicitly added in settings get a quota card. */
+export function quotaCardsForAccounts(live: ProviderQuota[], accounts: ConsoleAccount[]): ProviderQuota[] {
   const used = new Set<ProviderQuota>();
-
-  for (const slot of PROVIDER_SLOTS) {
-    const matches = providers.filter((item) => matchesSlot(item, slot));
-    if (matches.length === 0) {
-      ordered.push({
-        provider: slot.provider,
-        displayName: slot.displayName,
-        capturedAt: 0,
-        status: 'unconfigured',
-      });
-      continue;
+  return accounts.map((account) => {
+    const match = live.find((item) => !used.has(item) && item.accountId && item.accountId === account.userId)
+      || live.find((item) => !used.has(item) && matchesType(item, account.type));
+    const snapshot = account.subscription;
+    if (match) {
+      used.add(match);
+      return {
+        ...match,
+        displayName: account.label || match.displayName,
+        plan: match.plan || snapshot?.plan,
+        windows: match.windows?.length ? match.windows : snapshot?.windows,
+        capturedAt: match.capturedAt || snapshot?.capturedAt || 0,
+        status: match.windows?.length || snapshot?.windows?.length ? 'ok' : match.status,
+        userId: account.userId,
+        notes: account.notes,
+        accountCardId: account.id,
+      };
     }
-    for (const item of matches) {
-      ordered.push(item);
-      used.add(item);
+    if (snapshot?.windows?.length) {
+      return {
+        provider: TYPE_PROVIDER[account.type],
+        displayName: account.label || account.email || ACCOUNT_TYPE_LABEL[account.type],
+        plan: snapshot.plan || '订阅',
+        capturedAt: snapshot.capturedAt,
+        status: 'ok',
+        windows: snapshot.windows,
+        userId: account.userId,
+        notes: account.notes,
+        accountCardId: account.id,
+      };
     }
-  }
-
-  for (const item of providers) {
-    if (!used.has(item)) extras.push(item);
-  }
-
-  return [...ordered, ...extras];
+    return {
+      provider: TYPE_PROVIDER[account.type],
+      displayName: account.label || account.email || ACCOUNT_TYPE_LABEL[account.type],
+      capturedAt: 0,
+      status: 'unconfigured',
+      errorMessage: account.type === 'claude'
+        ? '已链接账户，但还没有订阅额度。请重新认证登录一次，使用 Claude 订阅账号，而不是 API Key。'
+        : '已识别账户，但本机当前登录读不到该账户额度。',
+      userId: account.userId,
+      notes: account.notes,
+      accountCardId: account.id,
+    };
+  });
 }

@@ -1,4 +1,7 @@
 import type {
+  ConsoleAccount,
+  ConsoleSettings,
+  PathSettings,
   QuotaState,
   UsageSummary,
   DailyTrendPoint,
@@ -48,16 +51,82 @@ export async function refreshQuota(): Promise<QuotaState> {
 
 export async function fetchUsageOverview(
   range: UsageRange,
-  options: { days?: number; limit?: number; signal?: AbortSignal; excludeAgyClaude?: boolean } = {},
+  options: { days?: number; limit?: number; signal?: AbortSignal } = {},
 ): Promise<UsageOverview> {
   const params = new URLSearchParams({
     range,
     days: String(options.days ?? trendDaysFor(range)),
     limit: String(options.limit ?? 50),
-    excludeAgyClaude: String(options.excludeAgyClaude !== false),
   });
   const res = await fetch(`${API_BASE}/usage/overview?${params}`, { signal: options.signal });
   return readJson<UsageOverview>(res, 'Failed to fetch usage overview');
+}
+
+export async function fetchSettings(signal?: AbortSignal): Promise<ConsoleSettings> {
+  const res = await fetch(`${API_BASE}/settings`, { signal });
+  return readJson<ConsoleSettings>(res, 'Failed to fetch settings');
+}
+
+export async function saveSettings(body: {
+  hideAgyClaude?: boolean;
+  paths?: Partial<PathSettings>;
+  accounts?: ConsoleAccount[];
+  dataDir?: string;
+  rescan?: boolean;
+}): Promise<{ settings: ConsoleSettings; quota: QuotaState | null }> {
+  const res = await fetch(`${API_BASE}/settings`, {
+    method: 'PUT',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(body),
+  });
+  return readJson(res, 'Failed to save settings');
+}
+
+export async function calibrateData(): Promise<{ settings: ConsoleSettings; count: number }> {
+  const res = await fetch(`${API_BASE}/data/calibrate`, { method: 'POST' });
+  return readJson(res, '校准失败');
+}
+
+export async function updateAccount(id: string, patch: { label?: string; notes?: string }): Promise<{ settings: ConsoleSettings }> {
+  const res = await fetch(`${API_BASE}/accounts/${encodeURIComponent(id)}`, {
+    method: 'PATCH',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(patch),
+  });
+  return readJson(res, '保存账户失败');
+}
+
+export async function deleteAccount(id: string): Promise<{ settings: ConsoleSettings }> {
+  const res = await fetch(`${API_BASE}/accounts/${encodeURIComponent(id)}`, { method: 'DELETE' });
+  return readJson(res, '移除账户失败');
+}
+
+export async function startGptLogin(): Promise<{ deviceCode: string; userCode: string; verificationUri: string; interval: number }> {
+  const res = await fetch(`${API_BASE}/login/gpt/start`, { method: 'POST' });
+  return readJson(res, '无法开始 GPT 登录');
+}
+
+export async function pollGptLogin(deviceCode: string): Promise<{ pending: true } | { userId: string; settings: ConsoleSettings }> {
+  const res = await fetch(`${API_BASE}/login/gpt/poll`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ deviceCode }),
+  });
+  return readJson(res, 'GPT 登录失败');
+}
+
+export async function startClaudeLogin(): Promise<{ state: string; authorizeUrl: string }> {
+  const res = await fetch(`${API_BASE}/login/claude/start`, { method: 'POST' });
+  return readJson(res, '无法开始 Claude 登录');
+}
+
+export async function finishClaudeLogin(state: string, code: string): Promise<{ settings: ConsoleSettings }> {
+  const res = await fetch(`${API_BASE}/login/claude/finish`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ state, code }),
+  });
+  return readJson(res, 'Claude 登录失败');
 }
 
 export async function fetchSummary(range: UsageRange): Promise<{ summary: UsageSummary; lastSyncTime: number }> {

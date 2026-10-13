@@ -19,6 +19,7 @@ export interface ProviderQuota {
   errorMessage?: string;
   windows?: QuotaWindow[];
   groups?: QuotaGroup[];
+  accountId?: string;
 }
 
 export interface QuotaState {

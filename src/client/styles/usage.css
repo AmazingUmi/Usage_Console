@@ -1,0 +1,113 @@
+/* ===== Overview: stats, trend chart, comparison, detail tables ===== */
+.dash-row { display: grid; grid-template-columns: minmax(0, 1.9fr) minmax(300px, 1fr); gap: 16px; align-items: stretch; }
+
+/*
+ * usage-panel is a grid; .overview-card-header is display:contents so its children
+ * become grid items and the toolbar can sit on the chart title row:
+ *   [ stats ........................ ]
+ *   [ chart title ........ range · chart ]
+ *   [ chart ......................... ]
+ */
+.usage-panel {
+  display: grid; grid-template-columns: minmax(0, 1fr) auto; align-items: center; column-gap: 16px; padding: 24px 28px;
+  grid-template-areas: "stats stats" "title tools" "chart chart" "axis axis";
+}
+.overview-card-header { display: contents; }
+
+.stat-row {
+  grid-area: stats; display: grid; grid-template-columns: repeat(auto-fit, minmax(140px, 1fr)); gap: 20px 28px;
+  margin-bottom: 22px; padding-bottom: 22px; border-bottom: 1px solid var(--edge);
+}
+.stat { min-width: 0; }
+.stat-label { display: flex; align-items: center; gap: 6px; margin-bottom: 6px; color: var(--muted); font-size: 12.5px; }
+.stat-label .unit { margin: 0; }
+.stat strong { display: block; font-size: clamp(26px, 2.5vw, 34px); font-weight: 700; line-height: 1.15; letter-spacing: -.03em; font-variant-numeric: tabular-nums; overflow-wrap: anywhere; }
+.stat strong .unit { font-weight: 400; }
+.stat small { display: block; margin-top: 4px; color: var(--muted); font-size: 12px; }
+
+.chart-heading { grid-area: title; margin: 0 0 6px; }
+.overview-toolbar { grid-area: tools; display: flex; align-items: center; justify-content: flex-end; gap: 8px; margin: 0 0 6px; }
+
+.ledger-filter { display: flex; align-items: center; gap: 2px; height: 38px; padding: 0 4px 0 14px; border-radius: var(--r-pill); }
+.ledger-filter label { color: var(--muted); font-size: 12px; white-space: nowrap; }
+.ledger-filter select { max-width: 200px; border-color: transparent; background-color: transparent; box-shadow: none; font-weight: 650; }
+.ledger-filter select:hover { background-color: var(--fill-hover); }
+
+/* Multi-series trend line, styled after the codex-switch usage chart. */
+.trend-line-chart { grid-area: chart; position: relative; min-width: 0; min-height: 220px; }
+.trend-line-chart.is-empty { display: grid; place-items: center; color: var(--muted); font-size: 13px; }
+.trend-line-svg { display: block; width: 100%; height: 214px; touch-action: pan-y; }
+.chart-grid { stroke: var(--edge); stroke-dasharray: 3 5; }
+.chart-tick { fill: var(--muted); font-size: 11px; font-family: var(--font); }
+.chart-cursor { stroke: var(--muted); stroke-opacity: .35; stroke-dasharray: 3 3; }
+.line-tooltip {
+  position: absolute; top: 8px; z-index: 3; min-width: 210px; padding: 10px 12px;
+  border-radius: 16px; pointer-events: none;
+  background: var(--fill-3); border: 1px solid var(--stroke);
+  box-shadow: inset 0 1px 0 var(--hairline), var(--shadow-pop);
+  -webkit-backdrop-filter: var(--blur-pop); backdrop-filter: var(--blur-pop);
+}
+.line-tooltip strong { display: block; margin-bottom: 8px; padding-bottom: 6px; border-bottom: 1px solid var(--edge); font-size: 12px; }
+.line-tooltip span { display: flex; align-items: center; gap: 8px; color: var(--muted); font-size: 12px; line-height: 1.7; }
+.line-tooltip i { width: 8px; height: 8px; border-radius: 50%; flex: none; }
+.line-tooltip b { margin-left: auto; color: var(--text); font-weight: 650; font-variant-numeric: tabular-nums; }
+.line-legend { display: flex; flex-wrap: wrap; justify-content: center; gap: 8px 18px; margin-top: 8px; color: var(--muted); font-size: 11px; }
+.line-legend span { display: inline-flex; align-items: center; gap: 6px; }
+.line-legend i { width: 16px; border-top: 2px solid; }
+
+/* Legacy bar chart, kept for any residual markup. */
+.trend-chart {
+  grid-area: chart; position: relative; display: flex; align-items: flex-end; gap: 5px; height: 184px; padding: 36px 0 0;
+  background: repeating-linear-gradient(to top, transparent 0 calc(25% - 1px), var(--edge) calc(25% - 1px) 25%);
+  background-origin: content-box; background-clip: content-box;
+  border-bottom: 1px solid var(--edge);
+}
+.trend-col { flex: 1; height: 100%; display: flex; flex-direction: column; justify-content: flex-end; align-items: center; cursor: pointer; }
+.trend-bar {
+  width: 100%; max-width: 26px; border-radius: 8px 8px 3px 3px;
+  background: linear-gradient(180deg, var(--accent-hi), var(--accent));
+  transition: filter .18s var(--ease), box-shadow .18s var(--ease), height .5s var(--ease);
+}
+.trend-bar.is-empty { background: var(--track); }
+.trend-bar.is-hovered { filter: brightness(1.08); box-shadow: 0 0 14px color-mix(in srgb, var(--accent) 60%, transparent); }
+.trend-tooltip {
+  position: absolute; top: 0; left: 50%; z-index: 2; transform: translateX(-50%);
+  display: flex; align-items: center; gap: 10px; padding: 4px 14px; border-radius: var(--r-pill);
+  font-size: 12px; font-variant-numeric: tabular-nums; white-space: nowrap; pointer-events: none;
+}
+.trend-axis { grid-area: axis; display: flex; justify-content: space-between; margin-top: 8px; color: var(--muted); font-size: 11px; font-variant-numeric: tabular-nums; }
+
+/* Comparison side panel. */
+.side-panel { display: flex; flex-direction: column; padding: 24px; }
+.model-comparison { display: flex; flex-direction: column; gap: 16px; min-width: 0; }
+.comparison-controls > div { flex-wrap: wrap; gap: 8px; }
+.comparison-total { display: flex; align-items: baseline; gap: 8px; color: var(--muted); font-size: 12px; }
+.comparison-total > strong { margin-left: auto; color: var(--text); font-size: 28px; font-weight: 700; line-height: 1.15; letter-spacing: -.02em; font-variant-numeric: tabular-nums; overflow-wrap: anywhere; }
+.comparison-list { flex: 1; min-height: 180px; max-height: 460px; overflow: auto; scrollbar-width: thin; }
+.comparison-list:focus-visible { border-radius: 8px; }
+.comparison-item + .comparison-item { margin-top: 16px; }
+.comparison-item-heading { display: flex; align-items: baseline; justify-content: space-between; gap: 12px; margin-bottom: 7px; font-size: 12.5px; }
+.comparison-model-name { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.comparison-model-value { flex: none; font-weight: 650; font-variant-numeric: tabular-nums; }
+.comparison-track { height: 6px; border-radius: 3px; background: var(--fill-inset); overflow: hidden; }
+.comparison-track > span { display: block; height: 100%; border-radius: inherit; background: linear-gradient(90deg, var(--accent), var(--accent-hi)); transition: width .5s var(--ease); }
+.comparison-empty { display: grid; place-items: center; min-height: 90px; color: var(--muted); font-size: 12.5px; }
+
+/* Detail tables. */
+.models-panel { padding: 20px 24px; }
+.table-scroll { overflow-x: auto; margin-top: 14px; border: 1px solid var(--edge); border-radius: var(--r-inner); background: var(--fill-inset); }
+.custom-table { width: 100%; min-width: 760px; font-size: 12.5px; text-align: left; }
+.custom-table th, .custom-table td { padding: 12px 14px; border-bottom: 1px solid var(--edge); vertical-align: middle; font-variant-numeric: tabular-nums; }
+.custom-table th { background: var(--fill-inset); color: var(--muted); font-size: 11.5px; font-weight: 600; white-space: nowrap; }
+.custom-table tbody tr:last-child td { border-bottom: 0; }
+.custom-table tbody tr { transition: background-color .15s var(--ease); }
+.custom-table tbody tr:hover { background: var(--fill-hover); }
+
+@media (max-width: 1000px) { .dash-row { grid-template-columns: 1fr; } }
+@media (max-width: 680px) {
+  .usage-panel { padding: 20px; grid-template-columns: 1fr; grid-template-areas: "stats" "title" "tools" "chart" "axis"; row-gap: 10px; }
+  .overview-toolbar { flex-wrap: wrap; }
+  .ledger-filter { flex: 1 1 100%; }
+  .ledger-filter select { flex: 1; max-width: none; }
+  .side-panel, .models-panel { padding: 20px; }
+}

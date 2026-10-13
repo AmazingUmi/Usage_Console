@@ -14,6 +14,7 @@ export interface TokenUsageRecord {
   pricingAsOf?: string;
   source?: string;
   sessionId?: string;
+  userId?: string;
 }
 
 export interface UsageSummary {
@@ -32,8 +33,27 @@ export interface DailyTrendPoint {
   totalTokens: number;
   inputTokens: number;
   outputTokens: number;
+  cacheReadTokens: number;
+  cacheWriteTokens: number;
+  reasoningTokens: number;
   estimatedCostUsd: number;
   requestCount: number;
+}
+
+export interface ScanSourceStatus {
+  id: string;
+  label: string;
+  path: string;
+  exists: boolean;
+  filesScanned: number;
+  records: number;
+  note?: string;
+}
+
+export interface ScanReport {
+  lastSyncTime: number;
+  recordCount: number;
+  sources: ScanSourceStatus[];
 }
 
 export interface GroupedUsage {

@@ -1,0 +1,49 @@
+/* ===== App frame: header capsule, hero, section rhythm ===== */
+.app-header {
+  position: sticky; top: 12px; z-index: 20;
+  width: calc(100% - 2 * var(--gutter)); max-width: 1176px; margin: 14px auto 0;
+  border-radius: 32px;
+}
+.header-inner { display: flex; align-items: center; gap: 12px; min-height: 60px; padding: 0 14px 0 12px; }
+.brand { display: inline-flex; align-items: center; gap: 10px; color: var(--text); font-size: 16px; font-weight: 700; letter-spacing: -.01em; text-decoration: none; white-space: nowrap; }
+.brand-mark {
+  display: grid; place-items: center; width: 36px; height: 36px; border-radius: 11px;
+  background: linear-gradient(160deg, var(--accent-hi), var(--accent)); color: var(--accent-contrast);
+  box-shadow: inset 0 1px 0 rgb(255 255 255 / 40%); font: 22px/1 Georgia, serif;
+}
+.main-nav { margin-right: auto; }
+.header-inner .button-primary { height: 38px; padding: 0 18px; }
+
+/* Connection dot: green = live, amber = connecting, red = offline. */
+.connection-status {
+  --dot: #1f9d62;
+  flex: none; width: 10px; height: 10px; margin: 0 6px; border-radius: 50%;
+  background: var(--dot); box-shadow: 0 0 0 3px color-mix(in srgb, var(--dot) 25%, transparent);
+  animation: breathe 2.8s ease-in-out infinite;
+}
+.connection-status[data-state="connecting"] { --dot: #e8a23a; }
+.connection-status[data-state="offline"] { --dot: var(--danger); animation: none; }
+@keyframes breathe { 50% { box-shadow: 0 0 0 6px color-mix(in srgb, var(--dot) 14%, transparent); } }
+
+.shell { max-width: 1240px; margin: 0 auto; padding: 28px var(--gutter) 24px; }
+.hero { margin-bottom: 8px; }
+.subtitle { margin-top: 6px; color: var(--muted); font-size: 14px; }
+
+.section { margin-top: 40px; }
+.section-heading { display: flex; align-items: center; justify-content: space-between; gap: 16px; margin-bottom: 14px; }
+.subsection-heading { margin-bottom: 12px; }
+
+.app-footer { max-width: 1240px; margin: 0 auto; padding: 24px var(--gutter) 48px; color: var(--muted); font-size: 12px; text-align: center; }
+
+@media (max-width: 760px) {
+  .header-inner { flex-wrap: wrap; row-gap: 8px; padding: 10px 14px; }
+  .brand { margin-right: auto; }
+  .main-nav { order: 9; width: 100%; margin: 0; }
+  .main-nav a, .main-nav button { flex: 1; justify-content: center; }
+}
+@media (max-width: 480px) {
+  .refresh-label { display: none; }
+  .header-inner .button-primary { width: 38px; padding: 0; }
+  .section-heading { flex-wrap: wrap; }
+  html { scroll-padding-top: 140px; }
+}

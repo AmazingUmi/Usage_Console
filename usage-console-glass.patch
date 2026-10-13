@@ -1,0 +1,784 @@
+diff --git a/src/client/components/Header.tsx b/src/client/components/Header.tsx
+index 1ab0f69..9a9ab4c 100644
+--- a/src/client/components/Header.tsx
++++ b/src/client/components/Header.tsx
+@@ -1,4 +1,4 @@
+-import React from 'react';
++import React, { useEffect, useState } from 'react';
+ import type { ConnectionState } from '../types';
+ 
+ interface HeaderProps {
+@@ -14,12 +14,46 @@ const STATUS_LABEL: Record<ConnectionState, string> = {
+   offline: '数据源连接失败',
+ };
+ 
++const NAV_ITEMS = [
++  { id: 'quota-title', label: '额度' },
++  { id: 'overview-title', label: '趋势' },
++  { id: 'usage-title', label: '用量' },
++] as const;
++
++/** Highlights the nav pill of the section currently under the top of the viewport. */
++function useActiveSection(): string {
++  const [active, setActive] = useState<string>(NAV_ITEMS[0].id);
++
++  useEffect(() => {
++    const update = () => {
++      const line = window.innerHeight * 0.32;
++      const atBottom = window.innerHeight + window.scrollY >= document.documentElement.scrollHeight - 4;
++      let current: string = NAV_ITEMS[0].id;
++      for (const { id } of NAV_ITEMS) {
++        const el = document.getElementById(id);
++        if (el && el.getBoundingClientRect().top <= line) current = id;
++      }
++      setActive(atBottom ? NAV_ITEMS[NAV_ITEMS.length - 1].id : current);
++    };
++    update();
++    window.addEventListener('scroll', update, { passive: true });
++    window.addEventListener('resize', update);
++    return () => {
++      window.removeEventListener('scroll', update);
++      window.removeEventListener('resize', update);
++    };
++  }, []);
++
++  return active;
++}
++
+ export const Header: React.FC<HeaderProps> = ({
+   onRefresh,
+   isRefreshing,
+   lastUpdated,
+   connectionState = 'connecting',
+ }) => {
++  const active = useActiveSection();
+   const statusTitle = lastUpdated
+     ? `${STATUS_LABEL[connectionState]} · 更新于 ${new Date(lastUpdated).toLocaleTimeString()}`
+     : STATUS_LABEL[connectionState];
+@@ -29,12 +63,14 @@ export const Header: React.FC<HeaderProps> = ({
+       <div className="header-inner">
+         <a className="brand" href="#main" aria-label="Usage Console 首页">
+           <span className="brand-mark" aria-hidden="true">π</span>
+-          <span>Usage Console</span>
++          <span className="brand-name">Usage Console</span>
+         </a>
+         <nav className="main-nav" aria-label="页面导航">
+-          <a href="#quota-title">额度</a>
+-          <a href="#overview-title">趋势</a>
+-          <a href="#usage-title">用量</a>
++          {NAV_ITEMS.map(({ id, label }) => (
++            <a key={id} href={`#${id}`} aria-current={active === id ? 'location' : undefined}>
++              {label}
++            </a>
++          ))}
+         </nav>
+         <button
+           id="refresh"
+@@ -42,16 +78,24 @@ export const Header: React.FC<HeaderProps> = ({
+           type="button"
+           onClick={onRefresh}
+           disabled={isRefreshing}
++          aria-busy={isRefreshing}
+         >
+-          <span aria-hidden="true" style={{ display: 'inline-block', transform: isRefreshing ? 'rotate(180deg)' : 'none', transition: 'transform 0.5s' }}>
+-            ↻
+-          </span>{' '}
+-          {isRefreshing ? '正在刷新…' : '刷新额度'}
++          <svg
++            className={`icon-refresh${isRefreshing ? ' is-spinning' : ''}`}
++            viewBox="0 0 16 16"
++            width="14"
++            height="14"
++            aria-hidden="true"
++          >
++            <path d="M13 8a5 5 0 1 1-1.6-3.7" />
++            <path d="M12.6 2v2.6H10" />
++          </svg>
++          <span className="refresh-label">{isRefreshing ? '正在刷新…' : '刷新额度'}</span>
+         </button>
+         <span
+           id="connection-status"
+           className="connection-status"
+-          data-state={connectionState === 'offline' ? 'offline' : 'connected'}
++          data-state={connectionState === 'offline' ? 'offline' : connectionState === 'connecting' ? 'connecting' : 'connected'}
+           role="status"
+           aria-label={STATUS_LABEL[connectionState]}
+           title={statusTitle}
+diff --git a/src/client/main.tsx b/src/client/main.tsx
+index 4ca5995..3bad1ec 100644
+--- a/src/client/main.tsx
++++ b/src/client/main.tsx
+@@ -2,7 +2,7 @@ import React from 'react';
+ import ReactDOM from 'react-dom/client';
+ import { App } from './App';
+ import { ErrorBoundary } from './components/ErrorBoundary';
+-import './index.css';
++import './styles/index.css';
+ 
+ ReactDOM.createRoot(document.getElementById('root')!).render(
+   <React.StrictMode>
+diff --git a/src/client/styles/a11y.css b/src/client/styles/a11y.css
+new file mode 100644
+index 0000000..14a3e68
+--- /dev/null
++++ b/src/client/styles/a11y.css
+@@ -0,0 +1,17 @@
++/* ===== Fallbacks & user preferences ===== */
++@supports not ((backdrop-filter: blur(1px)) or (-webkit-backdrop-filter: blur(1px))) {
++  :root { --fill-1: var(--solid); --fill-3: var(--solid); }
++}
++@media (prefers-reduced-transparency: reduce) {
++  :root { --fill-1: var(--solid); --fill-2: var(--solid-2); --fill-3: var(--solid); --blur: none; --blur-pop: none; }
++  .panel, .app-header, .help-content, .trend-tooltip { -webkit-backdrop-filter: none; backdrop-filter: none; }
++}
++@media (prefers-reduced-motion: reduce) {
++  html { scroll-behavior: auto; }
++  *, *::before, *::after { transition: none !important; animation: none !important; }
++}
++@media (forced-colors: active) {
++  .battery, .panel, .app-header { border: 1px solid CanvasText; }
++  .battery-fill { background: Highlight; box-shadow: none; }
++  .connection-status { forced-color-adjust: none; }
++}
+diff --git a/src/client/styles/base.css b/src/client/styles/base.css
+new file mode 100644
+index 0000000..f7136d3
+--- /dev/null
++++ b/src/client/styles/base.css
+@@ -0,0 +1,53 @@
++/* Reset, canvas and typography. */
++*, *::before, *::after { box-sizing: border-box; }
++[hidden] { display: none !important; }
++
++html {
++  background: var(--bg);
++  scroll-behavior: smooth;
++  scroll-padding-top: 100px;
++}
++
++body {
++  margin: 0;
++  background: transparent;
++  color: var(--text);
++  font: 14px/1.6 var(--font);
++  -webkit-font-smoothing: antialiased;
++  text-rendering: optimizeLegibility;
++}
++
++/* Mesh canvas lives on a fixed layer: background-attachment:fixed is janky/ignored on iOS Safari. */
++body::before {
++  content: "";
++  position: fixed;
++  inset: 0;
++  z-index: -1;
++  pointer-events: none;
++  background:
++    radial-gradient(58rem 40rem at 4% -10%, var(--mesh-a) 0, transparent 60%),
++    radial-gradient(50rem 36rem at 100% 0, var(--mesh-b) 0, transparent 58%),
++    radial-gradient(56rem 42rem at 58% 112%, var(--mesh-c) 0, transparent 58%);
++}
++
++h1, h2, h3, h4, p { margin: 0; }
++h1 { font-size: clamp(30px, 3.4vw, 40px); line-height: 1.15; font-weight: 750; letter-spacing: -.035em; }
++h2 { font-size: 22px; line-height: 1.3; font-weight: 700; letter-spacing: -.02em; }
++h3 { font-size: 15px; line-height: 1.4; font-weight: 650; letter-spacing: -.01em; }
++a { color: var(--accent); text-underline-offset: 3px; }
++button, select { font: inherit; }
++ol { list-style: none; margin: 0; padding: 0; }
++table { border-collapse: collapse; }
++
++.hint { color: var(--muted); font-size: 12px; line-height: 1.6; }
++.unit { margin-left: 4px; color: var(--muted); font: 11px var(--mono); }
++.subtle { color: inherit; }
++
++:focus-visible { outline: 2px solid var(--accent); outline-offset: 3px; }
++
++.skip-link {
++  position: fixed; left: 16px; top: -80px; z-index: 50;
++  padding: 12px 20px; border-radius: var(--r-pill);
++  background: var(--solid); color: var(--text);
++}
++.skip-link:focus { top: 12px; }
+diff --git a/src/client/styles/glass.css b/src/client/styles/glass.css
+new file mode 100644
+index 0000000..e00f498
+--- /dev/null
++++ b/src/client/styles/glass.css
+@@ -0,0 +1,167 @@
++/* ===== Glass surfaces ===== */
++
++/* Level 1 — cards & header capsule. Only these (and popovers) blur; nested chips never do. */
++.panel,
++.app-header {
++  background: var(--fill-1);
++  border: 1px solid var(--stroke);
++  box-shadow: inset 0 1px 0 var(--hairline), 0 0 0 .5px var(--edge), var(--shadow-card);
++  -webkit-backdrop-filter: var(--blur);
++  backdrop-filter: var(--blur);
++}
++.panel { position: relative; min-width: 0; border-radius: var(--r-card); padding: 24px; }
++/* Backdrop-filter makes every panel a stacking context: lift the one with an open popover. */
++.panel:has(.info-help[open]) { z-index: 6; }
++
++/* Level 2 — anything small that sits on a card. */
++.provider-tag,
++.gauge-reset,
++.client-badge,
++.ledger-filter,
++.overview-toolbar > .comparison-tab-btn,
++select {
++  background-color: var(--fill-2);
++  border: 1px solid var(--stroke);
++  box-shadow: inset 0 1px 0 var(--hairline), 0 0 0 .5px var(--edge);
++}
++
++/* Level 3 — popovers. */
++.help-content,
++.trend-tooltip {
++  background: var(--fill-3);
++  border: 1px solid var(--stroke);
++  box-shadow: inset 0 1px 0 var(--hairline), var(--shadow-pop);
++  -webkit-backdrop-filter: var(--blur-pop);
++  backdrop-filter: var(--blur-pop);
++}
++
++/* ===== Buttons ===== */
++button {
++  display: inline-flex; align-items: center; justify-content: center; gap: 6px;
++  min-height: 36px; padding: 0 16px;
++  border: 1px solid var(--stroke); border-radius: var(--r-pill);
++  background: var(--fill-2); color: var(--text);
++  box-shadow: inset 0 1px 0 var(--hairline), 0 0 0 .5px var(--edge);
++  font-size: 13px; font-weight: 600; white-space: nowrap; cursor: pointer;
++  transition: background-color .18s var(--ease), transform .18s var(--ease), box-shadow .18s var(--ease);
++}
++button:hover { background: var(--fill-3); }
++button:active { transform: scale(.97); }
++button:disabled { opacity: .55; cursor: not-allowed; transform: none; }
++
++.button-primary {
++  border-color: transparent; color: var(--accent-contrast);
++  background: linear-gradient(180deg, var(--accent-hi), var(--accent));
++  box-shadow: inset 0 1px 0 rgb(255 255 255 / 35%), 0 2px 10px color-mix(in srgb, var(--accent) 32%, transparent);
++}
++.button-primary:hover { background: linear-gradient(180deg, color-mix(in srgb, var(--accent-hi) 88%, #fff), var(--accent-hover)); }
++
++.icon-refresh { flex: none; fill: none; stroke: currentColor; stroke-width: 1.6; stroke-linecap: round; stroke-linejoin: round; }
++.icon-refresh.is-spinning { animation: spin .9s linear infinite; }
++@keyframes spin { to { transform: rotate(360deg); } }
++
++/* ===== Segmented control (nav pill + every tab group share one look) ===== */
++.main-nav,
++.comparison-tabs {
++  display: inline-flex; gap: 2px; padding: 3px;
++  border-radius: var(--r-pill); background: var(--fill-inset);
++}
++.main-nav a,
++.comparison-tabs .comparison-tab-btn {
++  display: inline-flex; align-items: center; min-height: 0;
++  padding: 6px 16px; border: 0; border-radius: var(--r-pill);
++  background: transparent; box-shadow: none;
++  color: var(--muted); font-size: 13px; font-weight: 550; text-decoration: none; white-space: nowrap;
++  transition: background-color .22s var(--ease), color .22s var(--ease), box-shadow .22s var(--ease);
++}
++.comparison-tabs .comparison-tab-btn { padding: 5px 13px; font-size: 12.5px; }
++.main-nav a:hover,
++.comparison-tabs .comparison-tab-btn:hover { background: transparent; color: var(--text); }
++.main-nav a[aria-current],
++.comparison-tabs .comparison-tab-btn.active {
++  background: var(--solid); color: var(--text); font-weight: 650; box-shadow: var(--shadow-thumb);
++}
++
++/* ===== Select (capsule everywhere; frosted picker where appearance:base-select exists) ===== */
++:root {
++  --chev: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16' fill='none' stroke='%23566176' stroke-width='1.8' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='m4 6 4 4 4-4'/%3E%3C/svg%3E");
++  --chev-mask: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16' fill='none' stroke='%23000' stroke-width='1.8' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='m4 6 4 4 4-4'/%3E%3C/svg%3E");
++}
++@media (prefers-color-scheme: dark) {
++  :root { --chev: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16' fill='none' stroke='%239ba8bc' stroke-width='1.8' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='m4 6 4 4 4-4'/%3E%3C/svg%3E"); }
++}
++select {
++  appearance: none; -webkit-appearance: none;
++  height: 34px; max-width: 100%; padding: 0 32px 0 14px;
++  border-radius: var(--r-pill);
++  background-image: var(--chev); background-repeat: no-repeat; background-position: right 11px center; background-size: 14px;
++  color: var(--text); font-size: 13px; font-weight: 600; text-overflow: ellipsis; cursor: pointer;
++  transition: background-color .18s var(--ease);
++}
++select:hover { background-color: var(--fill-3); }
++select:disabled { opacity: .5; cursor: not-allowed; }
++option { background: var(--solid); color: var(--text); }
++
++@supports (appearance: base-select) {
++  select, ::picker(select) { appearance: base-select; }
++  select { display: inline-flex; align-items: center; justify-content: space-between; gap: 8px; padding: 0 12px 0 14px; background-image: none; }
++  select::picker-icon { content: ""; flex: none; width: 14px; height: 14px; background: var(--muted); -webkit-mask: var(--chev-mask) center / contain no-repeat; mask: var(--chev-mask) center / contain no-repeat; transition: rotate .2s var(--ease); }
++  select:open::picker-icon { rotate: 180deg; }
++  selectedcontent { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
++  ::picker(select) {
++    margin-top: 6px; padding: 6px; color: var(--text);
++    border: 1px solid var(--stroke); border-radius: var(--r-inner);
++    background: var(--fill-3);
++    box-shadow: inset 0 1px 0 var(--hairline), var(--shadow-pop);
++    -webkit-backdrop-filter: var(--blur-pop); backdrop-filter: var(--blur-pop);
++  }
++  option { display: flex; align-items: center; gap: 8px; padding: 8px 12px; border-radius: 12px; background: transparent; font-size: 13px; font-weight: 450; cursor: pointer; }
++  option:hover, option:focus-visible { background: color-mix(in srgb, var(--accent) 14%, transparent); outline: 0; }
++  option:checked { background: color-mix(in srgb, var(--accent) 20%, transparent); font-weight: 650; }
++  option::checkmark { order: 1; margin-left: auto; color: var(--accent); }
++}
++
++/* ===== Chips ===== */
++.provider-tag {
++  display: inline-flex; align-items: center; height: 24px; padding: 0 10px;
++  border-radius: var(--r-pill); font-size: 11.5px; font-weight: 600; white-space: nowrap;
++}
++.client-badge {
++  display: inline-flex; align-items: center; gap: 4px; padding: 2px 10px;
++  border-radius: var(--r-pill); font-size: 11.5px; font-weight: 600;
++}
++
++/* ===== "?" popovers (details.info-help) ===== */
++.info-help { position: static; display: inline-block; flex: none; vertical-align: middle; font-size: 12px; }
++.info-help > summary {
++  display: grid; place-items: center; width: 22px; height: 22px; padding: 0; list-style: none;
++  border: 1px solid var(--edge); border-radius: 50%; background: var(--fill-2);
++  color: var(--muted); font-size: 12px; font-weight: 600; line-height: 1; cursor: pointer;
++  transition: color .18s var(--ease), background-color .18s var(--ease), border-color .18s var(--ease);
++}
++.info-help > summary::-webkit-details-marker { display: none; }
++.info-help > summary:hover,
++.info-help[open] > summary { color: var(--accent); border-color: var(--accent); background: var(--accent-soft); }
++
++.help-content {
++  position: absolute; top: auto; left: 16px; right: 16px; z-index: 8;
++  max-width: 380px; max-height: min(400px, 60dvh); overflow: auto;
++  margin-top: 8px; padding: 16px; border-radius: var(--r-inner);
++  color: var(--muted); font-size: 12px; font-weight: 400; line-height: 1.8; text-align: left;
++  white-space: normal; overflow-wrap: anywhere;
++}
++.help-content > strong { display: block; color: var(--text); font-size: 13px; font-weight: 650; line-height: 1.6; }
++.help-content p { margin-top: 8px; }
++.title-row { position: relative; display: flex; align-items: center; gap: 8px; min-width: 0; }
++.title-row .help-content { top: calc(100% + 8px); left: 0; right: auto; width: min(360px, calc(100vw - 2 * var(--gutter))); margin-top: 0; }
++.provider-heading .help-content { top: calc(100% + 8px); left: auto; right: 0; width: min(288px, calc(100vw - 2 * var(--gutter) - 24px)); margin-top: 0; }
++.info-help[open] > .help-content { animation: pop .22s var(--ease); }
++@keyframes pop { from { opacity: 0; transform: translateY(-4px) scale(.98); } }
++
++/* ===== Notice ===== */
++.notice {
++  margin: 0 0 16px; padding: 12px 16px; border: 1px solid color-mix(in srgb, var(--warning) 35%, transparent);
++  border-radius: var(--r-inner); background: color-mix(in srgb, var(--warning) 12%, var(--fill-2));
++  color: var(--text); font-size: 12.5px; line-height: 1.7; overflow-wrap: anywhere;
++}
++.loading-panel { padding: 36px 24px; text-align: center; }
+diff --git a/src/client/styles/index.css b/src/client/styles/index.css
+new file mode 100644
+index 0000000..2f71d66
+--- /dev/null
++++ b/src/client/styles/index.css
+@@ -0,0 +1,11 @@
++/*
++ * Usage Console — iOS frosted-glass design system.
++ * Load order matters: tokens → base → glass (surfaces & controls) → feature layers.
++ */
++@import "./tokens.css";
++@import "./base.css";
++@import "./glass.css";
++@import "./layout.css";
++@import "./quota.css";
++@import "./usage.css";
++@import "./a11y.css";
+diff --git a/src/client/styles/layout.css b/src/client/styles/layout.css
+new file mode 100644
+index 0000000..68fa813
+--- /dev/null
++++ b/src/client/styles/layout.css
+@@ -0,0 +1,49 @@
++/* ===== App frame: header capsule, hero, section rhythm ===== */
++.app-header {
++  position: sticky; top: 12px; z-index: 20;
++  width: calc(100% - 2 * var(--gutter)); max-width: 1176px; margin: 14px auto 0;
++  border-radius: 32px;
++}
++.header-inner { display: flex; align-items: center; gap: 12px; min-height: 60px; padding: 0 14px 0 12px; }
++.brand { display: inline-flex; align-items: center; gap: 10px; color: var(--text); font-size: 16px; font-weight: 700; letter-spacing: -.01em; text-decoration: none; white-space: nowrap; }
++.brand-mark {
++  display: grid; place-items: center; width: 36px; height: 36px; border-radius: 11px;
++  background: linear-gradient(160deg, var(--accent-hi), var(--accent)); color: var(--accent-contrast);
++  box-shadow: inset 0 1px 0 rgb(255 255 255 / 40%); font: 22px/1 Georgia, serif;
++}
++.main-nav { margin-right: auto; }
++.header-inner .button-primary { height: 38px; padding: 0 18px; }
++
++/* Connection dot: green = live, amber = connecting, red = offline. */
++.connection-status {
++  --dot: #1f9d62;
++  flex: none; width: 10px; height: 10px; margin: 0 6px; border-radius: 50%;
++  background: var(--dot); box-shadow: 0 0 0 3px color-mix(in srgb, var(--dot) 25%, transparent);
++  animation: breathe 2.8s ease-in-out infinite;
++}
++.connection-status[data-state="connecting"] { --dot: #e8a23a; }
++.connection-status[data-state="offline"] { --dot: var(--danger); animation: none; }
++@keyframes breathe { 50% { box-shadow: 0 0 0 6px color-mix(in srgb, var(--dot) 14%, transparent); } }
++
++.shell { max-width: 1240px; margin: 0 auto; padding: 28px var(--gutter) 24px; }
++.hero { margin-bottom: 8px; }
++.subtitle { margin-top: 6px; color: var(--muted); font-size: 14px; }
++
++.section { margin-top: 40px; }
++.section-heading { display: flex; align-items: center; justify-content: space-between; gap: 16px; margin-bottom: 14px; }
++.subsection-heading { margin-bottom: 12px; }
++
++.app-footer { max-width: 1240px; margin: 0 auto; padding: 24px var(--gutter) 48px; color: var(--muted); font-size: 12px; text-align: center; }
++
++@media (max-width: 760px) {
++  .header-inner { flex-wrap: wrap; row-gap: 8px; padding: 10px 14px; }
++  .brand { margin-right: auto; }
++  .main-nav { order: 9; width: 100%; margin: 0; }
++  .main-nav a { flex: 1; justify-content: center; }
++}
++@media (max-width: 480px) {
++  .refresh-label { display: none; }
++  .header-inner .button-primary { width: 38px; padding: 0; }
++  .section-heading { flex-wrap: wrap; }
++  html { scroll-padding-top: 140px; }
++}
+diff --git a/src/client/styles/quota.css b/src/client/styles/quota.css
+new file mode 100644
+index 0000000..47fb877
+--- /dev/null
++++ b/src/client/styles/quota.css
+@@ -0,0 +1,111 @@
++/* ===== Provider quota cards & battery gauges ===== */
++.provider-grid {
++  display: grid; grid-template-columns: repeat(var(--provider-columns), minmax(0, 1fr));
++  gap: 16px; align-items: stretch;   /* equal heights, incl. the unconfigured placeholder */
++}
++
++.panel.provider-card {
++  --pc: var(--gray);                  /* TSX sets --pc per provider */
++  display: flex; flex-direction: column; padding: 18px 18px 14px;
++  background: linear-gradient(155deg, color-mix(in srgb, var(--pc) 12%, transparent), transparent 62%), var(--fill-1);
++}
++.provider-card.is-empty { background: var(--fill-1); }
++
++/* Heading: icon | title+plan | status | help — the title can wrap but never collides with the tag. */
++.provider-heading {
++  position: relative; display: grid; grid-template-columns: auto minmax(0, 1fr) auto auto;
++  align-items: start; gap: 10px; margin-bottom: 14px;
++}
++.provider-heading > div { min-width: 0; }
++.provider-heading h3 {
++  display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden;
++  font-size: 14px; line-height: 1.35; overflow-wrap: anywhere;
++}
++.provider-heading .hint { margin-top: 2px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 11.5px; }
++.provider-icon {
++  display: grid; place-items: center; width: 32px; height: 32px; border-radius: 10px;
++  background: color-mix(in srgb, var(--pc) 16%, transparent); color: var(--pc); font: 700 15px var(--mono);
++}
++.provider-heading .info-help { margin-top: 1px; }
++
++/* Gauge area grows to fill the card so footers line up across the row. */
++.quota-groups { flex: 1; display: flex; flex-direction: column; justify-content: center; }
++.gauge {
++  display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 20px 12px;
++  justify-items: center; align-items: start; padding: 4px 0 6px;
++}
++.gauge-count-1 { grid-template-columns: minmax(0, 1fr); }
++.gauge-count-3 { grid-template-columns: repeat(3, minmax(0, 1fr)); }
++.is-empty .gauge { min-height: 170px; grid-template-columns: 1fr; align-items: center; }
++.quota-empty-note { text-align: center; }
++
++.gauge-row {
++  --bw: 64px; --bh: 112px; --fill: var(--pc); --sep: rgb(255 255 255 / 60%);
++  display: flex; flex-direction: column; align-items: center; gap: 8px; min-width: 0; text-align: center;
++}
++.gauge-count-1 .gauge-row { --bw: 84px; --bh: 132px; }   /* single window: bigger, centred */
++.gauge-count-3 .gauge-row { --bw: 54px; --bh: 100px; }
++.gauge-head { color: var(--muted); font-size: 12.5px; }
++
++/* Battery: soft glow behind, ticks at 25/50/75, fill brightens at the top edge. */
++.battery-stage { position: relative; display: grid; place-items: center; padding-top: 10px; }
++.battery-stage::before {
++  content: ""; position: absolute; left: 50%; bottom: 0; transform: translateX(-50%);
++  width: calc(var(--bw) + 60px); height: calc(var(--v) * 1% + 40px);
++  background: radial-gradient(closest-side at 50% 100%, color-mix(in srgb, var(--fill) 45%, transparent), transparent);
++  filter: blur(14px); opacity: .7; pointer-events: none;
++}
++.battery {
++  --r: calc(var(--bw) * .34);
++  position: relative; display: flex; align-items: flex-end; width: var(--bw); height: var(--bh); padding: 5px;
++  border: 2px solid color-mix(in srgb, var(--fill) 45%, transparent); border-radius: var(--r);
++  background: linear-gradient(180deg, rgb(255 255 255 / 45%), color-mix(in srgb, var(--fill) 8%, transparent));
++  box-shadow: inset 0 1px 0 rgb(255 255 255 / 70%), 0 8px 22px color-mix(in srgb, var(--fill) 20%, transparent);
++}
++.battery::before {   /* terminal cap */
++  content: ""; position: absolute; left: 50%; top: -9px; width: 36%; height: 7px; transform: translateX(-50%);
++  border-radius: 4px 4px 0 0; background: color-mix(in srgb, var(--fill) 45%, transparent);
++}
++.battery::after {    /* level ticks */
++  content: ""; position: absolute; inset: 5px; border-radius: calc(var(--r) - 7px); pointer-events: none;
++  background: linear-gradient(to top, transparent 24%, var(--sep) 24% 26%, transparent 26% 49%, var(--sep) 49% 51%, transparent 51% 74%, var(--sep) 74% 76%, transparent 76%);
++}
++.battery-fill {
++  display: block; width: 100%; border-radius: calc(var(--r) - 7px);
++  background: linear-gradient(180deg, color-mix(in srgb, var(--fill) 72%, #fff), var(--fill));
++  box-shadow: 0 0 20px color-mix(in srgb, var(--fill) 60%, transparent), inset 0 2px 0 rgb(255 255 255 / 45%);
++  transition: height .6s var(--ease);
++}
++.gauge-row[data-known="false"] .battery { border-style: dashed; }
++.gauge-row[data-known="false"] .battery-fill,
++.gauge-row[data-known="false"] .battery-stage::before { display: none; }
++
++.gauge-val { font-size: 28px; font-weight: 700; line-height: 1.1; letter-spacing: -.03em; font-variant-numeric: tabular-nums; white-space: nowrap; }
++.gauge-count-1 .gauge-val { font-size: 34px; }
++.gauge-count-3 .gauge-val { font-size: 24px; }
++.gauge-val small { display: block; margin: 2px 0 0; color: var(--muted); font-size: 11.5px; font-weight: 450; letter-spacing: 0; line-height: 1.2; }
++.gauge-row[data-level="warning"] .gauge-val { color: var(--warning); }
++.gauge-row[data-level="low"] .gauge-val { color: var(--danger); }
++
++.gauge-reset {
++  display: inline-flex; align-items: center; gap: 5px; max-width: 100%; padding: 3px 11px 3px 9px;
++  border-radius: var(--r-pill); color: var(--muted); font-size: 11.5px; font-weight: 600; font-variant-numeric: tabular-nums; line-height: 1.4; white-space: nowrap;
++}
++.gauge-reset small { font-size: inherit; }
++.gauge-reset-icon { flex: none; fill: none; stroke: currentColor; stroke-width: 1.5; stroke-linecap: round; stroke-linejoin: round; }
++.gauge-row[data-level="warning"] .gauge-reset,
++.gauge-row[data-level="low"] .gauge-reset { color: var(--text); background: color-mix(in srgb, var(--fill) 14%, var(--fill-2)); border-color: color-mix(in srgb, var(--fill) 40%, transparent); }
++
++.provider-foot {
++  display: flex; align-items: center; justify-content: space-between; gap: 10px;
++  margin-top: 14px; padding-top: 12px; border-top: 1px solid var(--edge);
++  color: var(--muted); font-size: 11.5px; font-variant-numeric: tabular-nums;
++}
++
++@media (prefers-color-scheme: dark) {
++  .gauge-row { --sep: rgb(14 20 28 / 55%); }
++  .battery {
++    background: linear-gradient(180deg, rgb(255 255 255 / 8%), color-mix(in srgb, var(--fill) 8%, transparent));
++    box-shadow: inset 0 1px 0 rgb(255 255 255 / 20%), 0 8px 22px color-mix(in srgb, var(--fill) 22%, transparent);
++  }
++}
+diff --git a/src/client/styles/tokens.css b/src/client/styles/tokens.css
+new file mode 100644
+index 0000000..c35e018
+--- /dev/null
++++ b/src/client/styles/tokens.css
+@@ -0,0 +1,109 @@
++/*
++ * Design tokens. Raw colours, radii, blur and shadows live here and nowhere else.
++ *
++ * Glass is built from three fill levels on top of one mesh-gradient canvas:
++ *   --fill-1  cards and the header capsule   (most transparent, blurred)
++ *   --fill-2  chips, selects, buttons, tabs  (sits on a card, no extra blur)
++ *   --fill-3  popovers and pickers           (most opaque, blurred)
++ */
++:root {
++  color-scheme: light dark;
++  --font: -apple-system, BlinkMacSystemFont, "SF Pro Text", "PingFang SC", "Microsoft YaHei", "Noto Sans CJK SC", sans-serif;
++  --mono: ui-monospace, "SF Mono", Menlo, Consolas, monospace;
++
++  /* text */
++  --text: #141a26;
++  --muted: #5a6578;
++
++  /* canvas */
++  --bg: #edf0f6;
++  --mesh-a: #cfe3f2;
++  --mesh-b: #dcd6f4;
++  --mesh-c: #c8ece6;
++
++  /* brand */
++  --accent: #0b8497;
++  --accent-hi: #2bb6c7;
++  --accent-hover: #08707f;
++  --accent-contrast: #fff;
++  --accent-soft: rgb(11 132 151 / 12%);
++
++  /* providers: OpenAI graphite · Claude terracotta · Grok ink · Antigravity azure */
++  --gray: #586272;
++  --chart-secondary: #cf6a43;
++  --grok: #252a33;
++  --agy: #2f7df4;
++
++  /* quota levels */
++  --warning: #c2700a;
++  --danger: #d92d3a;
++
++  /* glass */
++  --fill-1: rgb(255 255 255 / 52%);
++  --fill-2: rgb(255 255 255 / 74%);
++  --fill-3: rgb(255 255 255 / 90%);
++  --fill-inset: rgb(120 140 170 / 13%);
++  --fill-hover: rgb(120 140 170 / 16%);
++  --hairline: rgb(255 255 255 / 80%);
++  --stroke: rgb(255 255 255 / 62%);
++  --edge: rgb(90 110 150 / 22%);
++  --track: #dbe2ec;
++  --solid: #fff;
++  --solid-2: #f1f4f9;
++  --shadow-card: 0 8px 30px rgb(40 60 110 / 10%), 0 1px 2px rgb(40 60 110 / 8%);
++  --shadow-pop: 0 18px 48px rgb(20 30 60 / 22%);
++  --shadow-thumb: 0 1px 4px rgb(20 40 90 / 16%);
++  --blur: blur(24px) saturate(180%);
++  --blur-pop: blur(32px) saturate(180%);
++
++  /* shape & motion */
++  --r-card: 26px;
++  --r-inner: 18px;
++  --r-pill: 999px;
++  --ease: cubic-bezier(.32, .72, 0, 1);
++  --gutter: 32px;
++  --provider-columns: 4;
++}
++
++@media (prefers-color-scheme: dark) {
++  :root {
++    --text: #e9eef6;
++    --muted: #9ba8bc;
++    --bg: #0a0f16;
++    --mesh-a: #12394a;
++    --mesh-b: #2c2656;
++    --mesh-c: #0e3d3b;
++
++    --accent: #4cc9d8;
++    --accent-hi: #86e3ec;
++    --accent-hover: #86e3ec;
++    --accent-contrast: #04252b;
++    --accent-soft: rgb(76 201 216 / 16%);
++
++    --gray: #bcc4d1;
++    --chart-secondary: #f0a07a;
++    --grok: #e8ebf0;
++    --agy: #6aa6ff;
++    --warning: #f5b84a;
++    --danger: #f87171;
++
++    --fill-1: rgb(30 38 54 / 55%);
++    --fill-2: rgb(255 255 255 / 9%);
++    --fill-3: rgb(28 36 50 / 92%);
++    --fill-inset: rgb(255 255 255 / 7%);
++    --fill-hover: rgb(255 255 255 / 11%);
++    --hairline: rgb(255 255 255 / 14%);
++    --stroke: rgb(255 255 255 / 10%);
++    --edge: rgb(255 255 255 / 12%);
++    --track: #2b3747;
++    --solid: #161e28;
++    --solid-2: #1b2531;
++    --shadow-card: 0 8px 32px rgb(0 0 0 / 35%);
++    --shadow-pop: 0 18px 48px rgb(0 0 0 / 50%);
++    --shadow-thumb: 0 1px 4px rgb(0 0 0 / 40%);
++  }
++}
++
++@media (max-width: 1200px) { :root { --provider-columns: 2; } }
++@media (max-width: 850px)  { :root { --gutter: 20px; } }
++@media (max-width: 680px)  { :root { --provider-columns: 1; --gutter: 14px; } }
+diff --git a/src/client/styles/usage.css b/src/client/styles/usage.css
+new file mode 100644
+index 0000000..604299e
+--- /dev/null
++++ b/src/client/styles/usage.css
+@@ -0,0 +1,100 @@
++/* ===== Overview: stats, trend chart, comparison, detail tables ===== */
++.dash-row { display: grid; grid-template-columns: minmax(0, 1.9fr) minmax(300px, 1fr); gap: 16px; align-items: stretch; }
++
++/*
++ * usage-panel is a grid; .overview-card-header is display:contents so its children
++ * (stat-row, overview-toolbar) become grid items and the toolbar can sit on the chart title row:
++ *   [ stats ........................ ]
++ *   [ chart title ........ range · AGY ]
++ *   [ chart ......................... ]
++ */
++.usage-panel {
++  display: grid; grid-template-columns: minmax(0, 1fr) auto; align-items: center; column-gap: 16px; padding: 24px 28px;
++  grid-template-areas: "stats stats" "title tools" "chart chart" "axis axis";
++}
++.overview-card-header { display: contents; }
++
++.stat-row {
++  grid-area: stats; display: grid; grid-template-columns: repeat(auto-fit, minmax(140px, 1fr)); gap: 20px 28px;
++  margin-bottom: 22px; padding-bottom: 22px; border-bottom: 1px solid var(--edge);
++}
++.stat { min-width: 0; }
++.stat-label { display: flex; align-items: center; gap: 6px; margin-bottom: 6px; color: var(--muted); font-size: 12.5px; }
++.stat-label .unit { margin: 0; }
++.stat strong { display: block; font-size: clamp(26px, 2.5vw, 34px); font-weight: 700; line-height: 1.15; letter-spacing: -.03em; font-variant-numeric: tabular-nums; overflow-wrap: anywhere; }
++.stat strong .unit { font-weight: 400; }
++.stat small { display: block; margin-top: 4px; color: var(--muted); font-size: 12px; }
++
++.chart-heading { grid-area: title; margin: 0 0 6px; }
++.overview-toolbar { grid-area: tools; display: flex; align-items: center; gap: 8px; margin: 0 0 6px; }
++
++.ledger-filter { display: flex; align-items: center; gap: 2px; height: 38px; padding: 0 4px 0 14px; border-radius: var(--r-pill); }
++.ledger-filter label { color: var(--muted); font-size: 12px; white-space: nowrap; }
++.ledger-filter select { max-width: 200px; border-color: transparent; background-color: transparent; box-shadow: none; font-weight: 650; }
++.ledger-filter select:hover { background-color: var(--fill-hover); }
++
++/* AGY Claude toggle: a chip with a state dot. */
++.overview-toolbar > .comparison-tab-btn {
++  display: inline-flex; align-items: center; gap: 8px; height: 38px; padding: 0 16px;
++  border-radius: var(--r-pill); color: var(--muted); font-size: 12.5px; font-weight: 600; white-space: nowrap; cursor: pointer;
++}
++.overview-toolbar > .comparison-tab-btn::before { content: ""; width: 8px; height: 8px; border-radius: 50%; background: var(--muted); opacity: .6; }
++.overview-toolbar > .comparison-tab-btn.active { color: var(--text); }
++.overview-toolbar > .comparison-tab-btn.active::before { background: var(--accent); opacity: 1; box-shadow: 0 0 0 3px var(--accent-soft); }
++
++/* Trend: pill bars on a faint 4-line grid. */
++.trend-chart {
++  grid-area: chart; position: relative; display: flex; align-items: flex-end; gap: 5px; height: 184px; padding: 36px 0 0;
++  background: repeating-linear-gradient(to top, transparent 0 calc(25% - 1px), var(--edge) calc(25% - 1px) 25%);
++  background-origin: content-box; background-clip: content-box;
++  border-bottom: 1px solid var(--edge);
++}
++.trend-col { flex: 1; height: 100%; display: flex; flex-direction: column; justify-content: flex-end; align-items: center; cursor: pointer; }
++.trend-bar {
++  width: 100%; max-width: 26px; border-radius: 8px 8px 3px 3px;
++  background: linear-gradient(180deg, var(--accent-hi), var(--accent));
++  transition: filter .18s var(--ease), box-shadow .18s var(--ease), height .5s var(--ease);
++}
++.trend-bar.is-empty { background: var(--track); }
++.trend-bar.is-hovered { filter: brightness(1.08); box-shadow: 0 0 14px color-mix(in srgb, var(--accent) 60%, transparent); }
++.trend-tooltip {
++  position: absolute; top: 0; left: 50%; z-index: 2; transform: translateX(-50%);
++  display: flex; align-items: center; gap: 10px; padding: 4px 14px; border-radius: var(--r-pill);
++  font-size: 12px; font-variant-numeric: tabular-nums; white-space: nowrap; pointer-events: none;
++}
++.trend-axis { grid-area: axis; display: flex; justify-content: space-between; margin-top: 8px; color: var(--muted); font-size: 11px; font-variant-numeric: tabular-nums; }
++
++/* Comparison side panel. */
++.side-panel { display: flex; flex-direction: column; padding: 24px; }
++.model-comparison { display: flex; flex-direction: column; gap: 16px; min-width: 0; }
++.comparison-controls > div { flex-wrap: wrap; gap: 8px; }
++.comparison-total { display: flex; align-items: baseline; gap: 8px; color: var(--muted); font-size: 12px; }
++.comparison-total > strong { margin-left: auto; color: var(--text); font-size: 28px; font-weight: 700; line-height: 1.15; letter-spacing: -.02em; font-variant-numeric: tabular-nums; overflow-wrap: anywhere; }
++.comparison-list { overflow: auto; scrollbar-width: thin; }
++.comparison-list:focus-visible { border-radius: 8px; }
++.comparison-item + .comparison-item { margin-top: 16px; }
++.comparison-item-heading { display: flex; align-items: baseline; justify-content: space-between; gap: 12px; margin-bottom: 7px; font-size: 12.5px; }
++.comparison-model-name { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
++.comparison-model-value { flex: none; font-weight: 650; font-variant-numeric: tabular-nums; }
++.comparison-track { height: 6px; border-radius: 3px; background: var(--fill-inset); overflow: hidden; }
++.comparison-track > span { display: block; height: 100%; border-radius: inherit; background: linear-gradient(90deg, var(--accent), var(--accent-hi)); transition: width .5s var(--ease); }
++.comparison-empty { display: grid; place-items: center; min-height: 90px; color: var(--muted); font-size: 12.5px; }
++
++/* Detail tables. */
++.models-panel { padding: 20px 24px; }
++.table-scroll { overflow-x: auto; margin-top: 14px; border: 1px solid var(--edge); border-radius: var(--r-inner); background: var(--fill-inset); }
++.custom-table { width: 100%; min-width: 760px; font-size: 12.5px; text-align: left; }
++.custom-table th, .custom-table td { padding: 12px 14px; border-bottom: 1px solid var(--edge); vertical-align: middle; font-variant-numeric: tabular-nums; }
++.custom-table th { background: var(--fill-inset); color: var(--muted); font-size: 11.5px; font-weight: 600; white-space: nowrap; }
++.custom-table tbody tr:last-child td { border-bottom: 0; }
++.custom-table tbody tr { transition: background-color .15s var(--ease); }
++.custom-table tbody tr:hover { background: var(--fill-hover); }
++
++@media (max-width: 1000px) { .dash-row { grid-template-columns: 1fr; } }
++@media (max-width: 680px) {
++  .usage-panel { padding: 20px; grid-template-columns: 1fr; grid-template-areas: "stats" "title" "tools" "chart" "axis"; row-gap: 10px; }
++  .overview-toolbar { flex-wrap: wrap; }
++  .ledger-filter { flex: 1 1 100%; }
++  .ledger-filter select { flex: 1; max-width: none; }
++  .side-panel, .models-panel { padding: 20px; }
++}

@@ -1,6 +1,7 @@
 import React, { useMemo, useState } from 'react';
 import type { UsageSummary, DailyTrendPoint, GroupedUsage, UsageRange } from '../types';
 import { formatCnyFromUsd, formatTokens, formatUsd } from '../lib/format';
+import { UsageTrendChart } from './UsageTrendChart';
 
 interface OverviewDashboardProps {
   summary: UsageSummary;
@@ -10,8 +11,6 @@ interface OverviewDashboardProps {
   clients: GroupedUsage[];
   range: UsageRange;
   onRangeChange: (r: UsageRange) => void;
-  includeAgyClaude: boolean;
-  onIncludeAgyClaudeChange: (value: boolean) => void;
 }
 
 export const OverviewDashboard: React.FC<OverviewDashboardProps> = ({
@@ -22,11 +21,10 @@ export const OverviewDashboard: React.FC<OverviewDashboardProps> = ({
   clients,
   range,
   onRangeChange,
-  includeAgyClaude,
-  onIncludeAgyClaudeChange,
 }) => {
   const [comparisonMetric, setComparisonMetric] = useState<'cost' | 'tokens'>('tokens');
   const [comparisonDimension, setComparisonDimension] = useState<'client' | 'model' | 'provider'>('client');
+  const [chartMode, setChartMode] = useState<'bar' | 'line'>('line');
   const [hoveredPoint, setHoveredPoint] = useState<DailyTrendPoint | null>(null);
 
   const currentList = comparisonDimension === 'client'
@@ -45,10 +43,9 @@ export const OverviewDashboard: React.FC<OverviewDashboardProps> = ({
     0,
   );
 
-  const maxTrendTokens = Math.max(1000, ...trend.map((point) => point.totalTokens || 0));
   const avgTokens = summary.requestCount > 0 ? Math.round(summary.totalTokens / summary.requestCount) : 0;
   const trendLabel = trend.length > 0 ? `${trend.length} 天` : '近期';
-
+  const maxTrendTokens = Math.max(1000, ...trend.map((point) => point.totalTokens || 0));
   const axisLabels = useMemo(() => {
     if (trend.length === 0) return [];
     return [trend[0], trend[Math.floor(trend.length / 2)], trend[trend.length - 1]];
@@ -66,7 +63,7 @@ export const OverviewDashboard: React.FC<OverviewDashboardProps> = ({
                   <summary aria-label="Token 统计说明">?</summary>
                   <div className="help-content">
                     <strong>Token 统计说明</strong>
-                    <p>统计当前时间范围内本机开发客户端产生的输入输出 Token 总和。Antigravity 的 Claude 模型默认不计入。</p>
+                    <p>统计当前时间范围内本机开发客户端产生的输入输出 Token 总和，包含 Antigravity 的 Claude 模型。</p>
                   </div>
                 </details>
               </div>
@@ -104,77 +101,89 @@ export const OverviewDashboard: React.FC<OverviewDashboardProps> = ({
             </div>
           </div>
 
-          <div className="overview-toolbar">
-            <div className="ledger-filter">
-              <label htmlFor="range-select">统计范围</label>
-              <select
-                id="range-select"
-                value={range}
-                onChange={(e) => onRangeChange(e.target.value as UsageRange)}
-              >
-                <option value="today">今日用量</option>
-                <option value="7d">近 7 天</option>
-                <option value="30d">近 30 天</option>
-                <option value="all">总体用量 (全部)</option>
-              </select>
-            </div>
-            <button
-              type="button"
-              className={`comparison-tab-btn ${includeAgyClaude ? 'active' : ''}`}
-              onClick={() => onIncludeAgyClaudeChange(!includeAgyClaude)}
-              title="Antigravity 的 Claude 模型默认不计入用量与额度"
-            >
-              {includeAgyClaude ? '已含 AGY Claude' : '已隐藏 AGY Claude'}
-            </button>
-          </div>
         </div>
 
         <div className="chart-heading">
-          <div className="title-row" style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-            <h3 style={{ fontSize: '15px', fontWeight: 650 }}>Token 消耗趋势（{trendLabel}）</h3>
+          <div className="title-row">
+            <h3>Token 消耗趋势（{trendLabel}）</h3>
             <details className="info-help">
               <summary aria-label="消耗趋势说明">?</summary>
               <div className="help-content">
                 <strong>消耗趋势说明</strong>
-                <p>每日调用产生的 Token 总消耗柱状走势。悬停浮层不会改变图表高度，避免抖动。</p>
+                <p>可在柱状图和折线图之间切换。折线图按日展示输入、输出、缓存和估算费用，费用使用右侧坐标。</p>
               </div>
             </details>
           </div>
         </div>
 
-        <div className="trend-chart" onMouseLeave={() => setHoveredPoint(null)}>
-          {hoveredPoint && (
-            <div className="trend-tooltip" role="status">
-              <strong>{hoveredPoint.date}</strong>
-              <span>{formatTokens(hoveredPoint.totalTokens)} tokens</span>
-              <span>{formatUsd(hoveredPoint.estimatedCostUsd, 2)}</span>
-              <span>{hoveredPoint.requestCount || 0} 次</span>
-            </div>
-          )}
-          {trend.map((point) => {
-            const h = Math.max(4, ((point.totalTokens || 0) / maxTrendTokens) * 100);
-            const isHovered = hoveredPoint?.date === point.date;
+        <div className="overview-toolbar">
+          <div className="comparison-tabs" role="group" aria-label="图表类型">
+            <button
+              type="button"
+              className={`comparison-tab-btn${chartMode === 'bar' ? ' active' : ''}`}
+              aria-pressed={chartMode === 'bar'}
+              onClick={() => setChartMode('bar')}
+            >
+              柱状图
+            </button>
+            <button
+              type="button"
+              className={`comparison-tab-btn${chartMode === 'line' ? ' active' : ''}`}
+              aria-pressed={chartMode === 'line'}
+              onClick={() => setChartMode('line')}
+            >
+              折线图
+            </button>
+          </div>
+          <div className="ledger-filter">
+            <label htmlFor="range-select">统计范围</label>
+            <select
+              id="range-select"
+              value={range}
+              onChange={(e) => onRangeChange(e.target.value as UsageRange)}
+            >
+              <option value="today">今日用量</option>
+              <option value="7d">近 7 天</option>
+              <option value="30d">近 30 天</option>
+              <option value="all">总体用量 (全部)</option>
+            </select>
+          </div>
+        </div>
 
-            return (
-              <div
-                key={point.date}
-                className="trend-col"
-                onMouseEnter={() => setHoveredPoint(point)}
-              >
-                <div
-                  className={`trend-bar${isHovered ? ' is-hovered' : ''}${(point.totalTokens || 0) > 0 ? '' : ' is-empty'}`}
-                  style={{ height: `${Number.isFinite(h) ? h : 4}%` }}
-                />
+        {chartMode === 'line' ? (
+          <UsageTrendChart trend={trend} />
+        ) : (
+          <div className="trend-chart" onMouseLeave={() => setHoveredPoint(null)}>
+            {hoveredPoint && (
+              <div className="trend-tooltip" role="status">
+                <strong>{hoveredPoint.date}</strong>
+                <span>{formatTokens(hoveredPoint.totalTokens)} tokens</span>
+                <span>{formatUsd(hoveredPoint.estimatedCostUsd, 2)}</span>
+                <span>{hoveredPoint.requestCount || 0} 次</span>
               </div>
-            );
-          })}
-        </div>
+            )}
+            {trend.map((point) => {
+              const h = Math.max(4, ((point.totalTokens || 0) / maxTrendTokens) * 100);
+              const isHovered = hoveredPoint?.date === point.date;
+              return (
+                <div key={point.date} className="trend-col" onMouseEnter={() => setHoveredPoint(point)}>
+                  <div
+                    className={`trend-bar${isHovered ? ' is-hovered' : ''}${(point.totalTokens || 0) > 0 ? '' : ' is-empty'}`}
+                    style={{ height: `${Number.isFinite(h) ? h : 4}%` }}
+                  />
+                </div>
+              );
+            })}
+          </div>
+        )}
 
-        <div className="trend-axis">
-          {axisLabels.map((point, index) => (
-            <span key={`${point.date}-${index}`}>{point.date}</span>
-          ))}
-        </div>
+        {chartMode === 'bar' && (
+          <div className="trend-axis">
+            {axisLabels.map((point, index) => (
+              <span key={`${point.date}-${index}`}>{point.date}</span>
+            ))}
+          </div>
+        )}
       </div>
 
       <aside className="panel side-panel" aria-label="用量分布对比">
@@ -245,7 +254,7 @@ export const OverviewDashboard: React.FC<OverviewDashboardProps> = ({
             <span id="model-comparison-unit">{comparisonMetric === 'cost' ? 'USD' : 'Tokens'}</span>
           </div>
 
-          <ol className="comparison-list" tabIndex={0} style={{ maxHeight: '240px', overflowY: 'auto' }}>
+          <ol className="comparison-list" tabIndex={0}>
             {currentList.map((item) => {
               const val = comparisonMetric === 'cost' ? item.estimatedCostUsd || 0 : item.totalTokens || 0;
               const fillPercent = Math.max(3, (val / maxVal) * 100);

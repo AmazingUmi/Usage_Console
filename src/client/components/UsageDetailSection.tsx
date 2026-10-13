@@ -70,7 +70,7 @@ export const UsageDetailSection: React.FC<UsageDetailSectionProps> = ({
                   <summary aria-label="软件统计说明">?</summary>
                   <div className="help-content">
                     <strong>软件客户端统计</strong>
-                    <p>自动识别 Codex (OpenAI)、Pi Coding Agent、Grok Build 等本地工具的会话消耗。</p>
+                    <p>自动识别 Codex、Pi、Claude Code 对话、Grok Build 等本地工具的会话消耗。</p>
                   </div>
                 </details>
               </div>

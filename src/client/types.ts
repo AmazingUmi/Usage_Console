@@ -19,6 +19,10 @@ export interface ProviderQuota {
   errorMessage?: string;
   windows?: QuotaWindow[];
   groups?: QuotaGroup[];
+  accountId?: string;
+  userId?: string;
+  notes?: string;
+  accountCardId?: string;
 }
 
 export interface QuotaState {
@@ -42,6 +46,9 @@ export interface DailyTrendPoint {
   totalTokens: number;
   inputTokens: number;
   outputTokens: number;
+  cacheReadTokens?: number;
+  cacheWriteTokens?: number;
+  reasoningTokens?: number;
   estimatedCostUsd: number;
   requestCount: number;
 }
@@ -88,3 +95,54 @@ export interface UsageOverview {
 }
 
 export type ConnectionState = 'connecting' | 'connected' | 'offline';
+
+export interface PathSettings {
+  codexDir: string;
+  piAgentDir: string;
+  claudeProjectsDir: string;
+  grokSessionsDir: string;
+}
+
+export type AccountType = 'gpt' | 'claude' | 'grok' | 'agy';
+
+export interface AccountSubscription {
+  plan?: string;
+  capturedAt: number;
+  windows: QuotaWindow[];
+}
+
+export interface ConsoleAccount {
+  id: string;
+  type: AccountType;
+  label: string;
+  userId?: string;
+  notes?: string;
+  email?: string;
+  source?: 'scan' | 'login';
+  subscription?: AccountSubscription;
+}
+
+export interface ScanSourceStatus {
+  id: string;
+  label: string;
+  path: string;
+  exists: boolean;
+  filesScanned: number;
+  records: number;
+  note?: string;
+}
+
+export interface ConsoleSettings {
+  hideAgyClaude: boolean;
+  paths: PathSettings;
+  defaults: PathSettings;
+  resolved: PathSettings;
+  availability: Record<keyof PathSettings, boolean>;
+  accounts: ConsoleAccount[];
+  dataDir: string;
+  scan: {
+    lastSyncTime: number;
+    recordCount: number;
+    sources: ScanSourceStatus[];
+  };
+}

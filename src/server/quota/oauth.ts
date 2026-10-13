@@ -4,6 +4,8 @@ import path from 'node:path';
 import { CONFIG } from '../config.js';
 import type { ProviderQuota, QuotaState, QuotaWindow } from './types.js';
 import { getLatestQuotaState } from './scanner.js';
+import { loadLocalClaudeIdentity } from '../identity/scan.js';
+import { upsertAccounts } from '../data/library.js';
 
 interface RawCodexResponse {
   user_id?: string;
@@ -96,6 +98,7 @@ export async function fetchLiveCodexQuota(
     capturedAt: Date.now(),
     status: 'ok',
     windows,
+    accountId: data.account_id,
   };
 }
 
@@ -267,6 +270,24 @@ export async function queryAllLiveQuotas(forceRefresh = false): Promise<QuotaSta
 
   // Await all live queries
   await Promise.allSettled(tasks);
+
+  try {
+    const claude = await loadLocalClaudeIdentity();
+    if (claude?.subscription) {
+      upsertAccounts([claude]);
+      providers.claude = {
+        provider: 'claude',
+        displayName: claude.email ? `Claude (${claude.email})` : 'Claude',
+        plan: claude.subscription.plan || '订阅',
+        capturedAt: claude.subscription.capturedAt,
+        status: 'ok',
+        windows: claude.subscription.windows,
+        accountId: claude.userId,
+      };
+    }
+  } catch {
+    // Missing local Claude credentials should not fail the other quota reads.
+  }
 
   try {
     const fallback = await getLatestQuotaState();

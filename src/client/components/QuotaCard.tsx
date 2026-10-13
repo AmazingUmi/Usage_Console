@@ -5,6 +5,7 @@ import { collectQuotaWindows } from '../lib/quota';
 interface QuotaCardProps {
   quota: ProviderQuota;
   includeAgyClaude?: boolean;
+  onEdit?: (quota: ProviderQuota) => void;
 }
 
 function formatCountdown(resetAt?: number): string {
@@ -113,7 +114,7 @@ const BatteryRow: React.FC<{ window: QuotaWindow; pc: string }> = ({ window: win
   );
 };
 
-export const QuotaCard: React.FC<QuotaCardProps> = ({ quota, includeAgyClaude = false }) => {
+export const QuotaCard: React.FC<QuotaCardProps> = ({ quota, includeAgyClaude = false, onEdit }) => {
   const visuals = getProviderVisuals(quota.provider);
   const status = statusMeta(quota.status);
   const { windows, groupLabel, hiddenClaude } = collectQuotaWindows(quota, includeAgyClaude);
@@ -148,7 +149,7 @@ export const QuotaCard: React.FC<QuotaCardProps> = ({ quota, includeAgyClaude = 
             <strong>{quota.displayName}</strong>
             <p>订阅类型: {quota.plan || '未配置'}</p>
             <p>读数时间: {quota.capturedAt ? new Date(quota.capturedAt).toLocaleString() : '—'}</p>
-            <p>{quota.errorMessage || '通过官方 API 探针或本地缓存提取滚动与周期限额。Antigravity 的 Claude 组默认隐藏。'}</p>
+            <p>{quota.errorMessage || '通过官方 API 探针或本地缓存提取滚动与周期限额。Antigravity 的 Claude 分组可在设置中隐藏，不影响用量统计。'}</p>
           </div>
         </details>
       </header>
@@ -170,7 +171,12 @@ export const QuotaCard: React.FC<QuotaCardProps> = ({ quota, includeAgyClaude = 
 
       <div className="provider-foot">
         <span>{capturedLabel}</span>
-        <span>{quota.status === 'ok' ? '官方读数' : '本地占位'}</span>
+        <span>
+          {onEdit && quota.accountCardId && (
+            <button type="button" className="text-link" onClick={() => onEdit(quota)}>编辑</button>
+          )}
+          {quota.status === 'ok' ? '官方读数' : quota.status === 'unconfigured' ? '未检测到' : '本地读数'}
+        </span>
       </div>
     </article>
   );
