@@ -23,7 +23,7 @@ import type {
   TokenUsageRecord,
   UsageRange,
 } from './types';
-import { ShieldCheck, Sparkles } from 'lucide-react';
+import { ShieldAlert } from 'lucide-react';
 
 export const App: React.FC = () => {
   const [quotaState, setQuotaState] = useState<QuotaState | null>(null);
@@ -82,26 +82,27 @@ export const App: React.FC = () => {
   const providerList = quotaState ? Object.values(quotaState.providers) : [];
 
   return (
-    <div className="min-h-screen bg-slate-950 text-slate-100 flex flex-col font-sans">
+    <div className="min-h-screen flex flex-col antialiased selection:bg-blue-500/30 selection:text-blue-200">
       <Header
         lastUpdated={quotaState?.updatedAt}
         onRefresh={handleRefresh}
         isRefreshing={isRefreshing}
       />
 
-      <main className="flex-1 max-w-7xl w-full mx-auto px-4 sm:px-6 py-6 space-y-6">
+      <main className="flex-1 max-w-7xl w-full mx-auto px-4 sm:px-6 py-8 space-y-8">
         {error && (
-          <div className="p-3 bg-rose-500/10 border border-rose-500/20 text-rose-400 rounded-xl text-xs">
-            加载数据提示: {error}
+          <div className="p-3.5 glass-panel bg-rose-950/20 border-rose-500/30 text-rose-300 text-xs flex items-center gap-2.5">
+            <ShieldAlert className="w-4 h-4 text-rose-400 shrink-0" />
+            <span>数据同步提示: {error}</span>
           </div>
         )}
 
         {/* Section 1: Quota Overview */}
-        <section className="space-y-3">
+        <section id="quota-section" className="space-y-3.5">
           <div className="flex items-center justify-between">
             <div>
-              <h2 className="text-base font-semibold text-slate-100">官方额度状态</h2>
-              <p className="text-xs text-slate-400">实时监控各平台 5 小时与每周订阅配额窗口</p>
+              <h2 className="text-base font-bold text-white tracking-tight">剩余额度</h2>
+              <p className="text-xs text-slate-400">实时读取各服务商官方 5 小时与每周订阅配额窗口</p>
             </div>
           </div>
 
@@ -110,8 +111,8 @@ export const App: React.FC = () => {
               <QuotaCard key={p.provider} quota={p} />
             ))}
             {providerList.length === 0 && (
-              <div className="col-span-full py-8 text-center text-slate-500 text-xs bg-slate-900/20 rounded-xl border border-slate-800/40">
-                正在加载平台配额...
+              <div className="col-span-full py-10 text-center text-slate-400 text-xs glass-panel">
+                正在加载平台配额…
               </div>
             )}
           </div>
@@ -119,7 +120,7 @@ export const App: React.FC = () => {
 
         {/* Section 2: Usage Summary Metrics */}
         {summary && (
-          <section>
+          <section id="usage-section">
             <UsageMetrics
               summary={summary}
               range={range}
@@ -129,19 +130,19 @@ export const App: React.FC = () => {
         )}
 
         {/* Section 3: Trend & Breakdown Grid */}
-        <section className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+        <section id="breakdown-section" className="grid grid-cols-1 lg:grid-cols-2 gap-6">
           <UsageTrend trend={trend} />
           <BreakdownTable models={models} providers={providers} />
         </section>
 
         {/* Section 4: Recent Records */}
-        <section>
+        <section id="records-section">
           <RecentRecordsTable records={records} />
         </section>
       </main>
 
-      <footer className="border-t border-slate-800/60 py-4 px-6 text-center text-xs text-slate-500">
-        <p>Usage Console · 基于 Node.js + React + Tailwind CSS · 本地无侵入监控</p>
+      <footer className="border-t border-white/5 py-5 px-6 text-center text-xs text-slate-400">
+        <p>Usage Console · 基于 Node.js + React 19 + Tailwind CSS · 参照 codex-switch 与 pi-quota-monitor 视觉架构设计</p>
       </footer>
     </div>
   );

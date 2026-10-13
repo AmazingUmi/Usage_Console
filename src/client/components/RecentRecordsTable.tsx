@@ -19,19 +19,19 @@ function formatDateTime(timestamp: number): string {
 
 export const RecentRecordsTable: React.FC<RecentRecordsTableProps> = ({ records }) => {
   return (
-    <div className="rounded-xl border border-slate-800/80 bg-slate-900/40 p-4">
+    <div className="glass-panel p-5">
       <div className="flex items-center gap-2 mb-4">
-        <div className="p-1.5 rounded-lg bg-sky-500/10 text-sky-400">
+        <div className="p-1.5 rounded-lg bg-sky-500/15 text-sky-400 border border-sky-500/20">
           <History className="w-4 h-4" />
         </div>
-        <h3 className="text-sm font-semibold text-slate-200">最近调用明细</h3>
-        <span className="text-xs text-slate-500">（最新 {records.length} 笔）</span>
+        <h3 className="text-sm font-semibold text-white tracking-tight">最近调用流水</h3>
+        <span className="text-xs text-slate-400 font-normal">（最新 {records.length} 笔）</span>
       </div>
 
       <div className="overflow-x-auto">
         <table className="w-full text-left text-xs">
           <thead>
-            <tr className="border-b border-slate-800/80 text-slate-400">
+            <tr className="border-b border-white/10 text-slate-400">
               <th className="py-2 px-3 font-medium">调用时间</th>
               <th className="py-2 px-3 font-medium">渠道</th>
               <th className="py-2 px-3 font-medium">模型</th>
@@ -42,41 +42,45 @@ export const RecentRecordsTable: React.FC<RecentRecordsTableProps> = ({ records 
               <th className="py-2 px-3 font-medium text-right">费用估算</th>
             </tr>
           </thead>
-          <tbody className="divide-y divide-slate-800/40">
+          <tbody className="divide-y divide-white/5 tabular-nums">
             {records.map((r, idx) => (
-              <tr key={idx} className="hover:bg-slate-800/30 transition">
-                <td className="py-2 px-3 text-slate-400 whitespace-nowrap">
+              <tr key={idx} className="hover:bg-white/[0.03] transition">
+                <td className="py-2.5 px-3 text-slate-400 whitespace-nowrap font-mono text-[11px]">
                   {formatDateTime(r.timestamp)}
                 </td>
-                <td className="py-2 px-3 font-medium text-slate-300">
-                  <span className="px-1.5 py-0.5 rounded bg-slate-800 text-slate-300 border border-slate-700/40 text-[10px]">
+                <td className="py-2.5 px-3">
+                  <span className="px-2 py-0.5 rounded-full bg-slate-800/80 text-slate-300 border border-white/10 text-[10px] font-mono">
                     {r.provider}
                   </span>
                 </td>
-                <td className="py-2 px-3 font-medium text-slate-200">
+                <td className="py-2.5 px-3 font-medium text-slate-200 font-mono text-[11px]">
                   {r.model}
                 </td>
-                <td className="py-2 px-3 text-slate-400">
+                <td className="py-2.5 px-3 text-slate-400 font-mono text-[11px]">
                   {formatTokens(r.input)}
                 </td>
-                <td className="py-2 px-3 text-slate-400">
+                <td className="py-2.5 px-3 text-slate-400 font-mono text-[11px]">
                   {formatTokens(r.output)}
-                  {r.reasoning ? <span className="text-[10px] text-purple-400 ml-1">({formatTokens(r.reasoning)})</span> : null}
+                  {r.reasoning ? (
+                    <span className="text-[10px] text-purple-400 ml-1">
+                      (+{formatTokens(r.reasoning)})
+                    </span>
+                  ) : null}
                 </td>
-                <td className="py-2 px-3 text-slate-400">
+                <td className="py-2.5 px-3 text-slate-400 font-mono text-[11px]">
                   {r.cacheRead ? formatTokens(r.cacheRead) : '-'}
                 </td>
-                <td className="py-2 px-3 font-semibold text-slate-200">
+                <td className="py-2.5 px-3 font-semibold text-white font-mono text-[11px]">
                   {formatTokens(r.totalTokens)}
                 </td>
-                <td className="py-2 px-3 font-medium text-right text-emerald-400">
+                <td className="py-2.5 px-3 font-medium text-right text-emerald-400 font-mono text-[11px]">
                   ${(r.estimatedCostUsd || 0).toFixed(4)}
                 </td>
               </tr>
             ))}
             {records.length === 0 && (
               <tr>
-                <td colSpan={8} className="py-6 text-center text-slate-500">
+                <td colSpan={8} className="py-6 text-center text-slate-400">
                   暂无调用记录
                 </td>
               </tr>

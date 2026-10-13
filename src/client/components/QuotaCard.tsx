@@ -1,5 +1,5 @@
 import React from 'react';
-import { BatteryCharging, Clock, Cpu, Sparkles, CheckCircle2, AlertTriangle } from 'lucide-react';
+import { Clock, HelpCircle, CheckCircle2, AlertCircle } from 'lucide-react';
 import type { ProviderQuota, QuotaWindow } from '../types';
 
 interface QuotaCardProps {
@@ -25,40 +25,93 @@ function formatCountdown(resetAt?: number): string {
   return `${minutes}分钟后重置`;
 }
 
-function getPercentColor(percent: number): { bg: string; text: string; bar: string } {
-  if (percent > 50) {
-    return { bg: 'bg-emerald-500/10', text: 'text-emerald-400', bar: 'bg-emerald-500' };
+function getProviderTheme(provider: string, plan?: string): {
+  icon: string;
+  iconBg: string;
+  iconColor: string;
+  badgeBg: string;
+  badgeText: string;
+} {
+  const p = provider.toLowerCase();
+  if (p.includes('codex') || p.includes('openai')) {
+    return {
+      icon: 'O',
+      iconBg: 'bg-emerald-500/15 border-emerald-500/20',
+      iconColor: 'text-emerald-400',
+      badgeBg: 'bg-emerald-500/10 border-emerald-500/25',
+      badgeText: 'text-emerald-300',
+    };
   }
-  if (percent > 20) {
-    return { bg: 'bg-amber-500/10', text: 'text-amber-400', bar: 'bg-amber-500' };
+  if (p.includes('antigravity') || p.includes('gemini') || p.includes('google')) {
+    return {
+      icon: 'G',
+      iconBg: 'bg-blue-500/15 border-blue-500/20',
+      iconColor: 'text-blue-400',
+      badgeBg: 'bg-blue-500/10 border-blue-500/25',
+      badgeText: 'text-blue-300',
+    };
   }
-  return { bg: 'bg-rose-500/10', text: 'text-rose-400', bar: 'bg-rose-500' };
+  if (p.includes('claude') || p.includes('anthropic')) {
+    return {
+      icon: 'C',
+      iconBg: 'bg-orange-500/15 border-orange-500/20',
+      iconColor: 'text-orange-400',
+      badgeBg: 'bg-orange-500/10 border-orange-500/25',
+      badgeText: 'text-orange-300',
+    };
+  }
+  if (p.includes('grok') || p.includes('xai')) {
+    return {
+      icon: 'X',
+      iconBg: 'bg-purple-500/15 border-purple-500/20',
+      iconColor: 'text-purple-400',
+      badgeBg: 'bg-purple-500/10 border-purple-500/25',
+      badgeText: 'text-purple-300',
+    };
+  }
+  return {
+    icon: '⚡',
+    iconBg: 'bg-slate-500/15 border-slate-500/20',
+    iconColor: 'text-slate-300',
+    badgeBg: 'bg-slate-500/10 border-slate-500/25',
+    badgeText: 'text-slate-300',
+  };
 }
 
 const ProgressBar: React.FC<{ window: QuotaWindow }> = ({ window: win }) => {
   const percent = Math.min(100, Math.max(0, win.remainingPercent));
-  const colors = getPercentColor(percent);
   const countdown = formatCountdown(win.resetAt);
+
+  // Status colors based on remaining quota percentage
+  let barColor = 'bg-emerald-500';
+  let textColor = 'text-emerald-400';
+  if (percent <= 20) {
+    barColor = 'bg-rose-500';
+    textColor = 'text-rose-400';
+  } else if (percent <= 50) {
+    barColor = 'bg-amber-500';
+    textColor = 'text-amber-400';
+  }
 
   return (
     <div className="space-y-1.5 py-1">
       <div className="flex items-center justify-between text-xs">
         <span className="text-slate-300 font-medium">{win.label}</span>
-        <div className="flex items-center gap-2">
+        <div className="flex items-center gap-2 tabular-nums">
           {countdown && (
-            <span className="flex items-center gap-1 text-[11px] text-slate-400">
+            <span className="flex items-center gap-1 text-[11px] text-slate-400 font-normal">
               <Clock className="w-3 h-3 text-slate-500" />
               {countdown}
             </span>
           )}
-          <span className={`font-semibold ${colors.text}`}>
-            {percent.toFixed(0)}%
+          <span className={`font-semibold ${textColor}`}>
+            {percent.toFixed(1)}%
           </span>
         </div>
       </div>
-      <div className="w-full bg-slate-800/80 rounded-full h-2 overflow-hidden p-0.5 border border-slate-700/50">
+      <div className="w-full bg-slate-900/90 rounded-full h-2 overflow-hidden p-0.5 border border-white/5">
         <div
-          className={`h-full rounded-full transition-all duration-500 ${colors.bar}`}
+          className={`h-full rounded-full transition-all duration-500 ${barColor}`}
           style={{ width: `${percent}%` }}
         />
       </div>
@@ -67,54 +120,59 @@ const ProgressBar: React.FC<{ window: QuotaWindow }> = ({ window: win }) => {
 };
 
 export const QuotaCard: React.FC<QuotaCardProps> = ({ quota }) => {
+  const theme = getProviderTheme(quota.provider, quota.plan);
+
   return (
-    <div className="rounded-xl border border-slate-800/80 bg-slate-900/50 p-4 shadow-sm hover:border-slate-700 transition flex flex-col justify-between">
+    <article className="glass-panel p-5 flex flex-col justify-between transition-all hover:border-white/20">
       <div>
-        <div className="flex items-center justify-between mb-3">
-          <div className="flex items-center gap-2">
-            <div className="p-1.5 rounded-lg bg-slate-800 text-slate-300">
-              <Cpu className="w-4 h-4 text-emerald-400" />
-            </div>
+        {/* Card Header */}
+        <header className="flex items-center justify-between pb-3 mb-3 border-b border-white/5">
+          <div className="flex items-center gap-2.5">
+            <span className={`w-7 h-7 rounded-lg border flex items-center justify-center font-bold font-mono text-xs ${theme.iconBg} ${theme.iconColor}`}>
+              {theme.icon}
+            </span>
             <div>
-              <h3 className="text-sm font-semibold text-slate-200">{quota.displayName}</h3>
+              <h3 className="text-sm font-semibold text-white tracking-tight">{quota.displayName}</h3>
               {quota.plan && (
-                <span className="inline-block px-1.5 py-0.2 text-[10px] uppercase font-bold rounded bg-slate-800 text-slate-400 border border-slate-700/50">
+                <span className={`inline-block px-1.5 py-0.2 mt-0.5 text-[10px] font-semibold rounded border uppercase tracking-wider ${theme.badgeBg} ${theme.badgeText}`}>
                   {quota.plan}
                 </span>
               )}
             </div>
           </div>
 
-          <div className="flex items-center gap-1">
+          <div className="flex items-center gap-1.5">
             {quota.status === 'ok' ? (
-              <span className="flex items-center gap-1 text-[11px] font-medium text-emerald-400 bg-emerald-500/10 px-2 py-0.5 rounded-full border border-emerald-500/20">
+              <span className="inline-flex items-center gap-1 text-[11px] text-emerald-400 bg-emerald-500/10 px-2 py-0.5 rounded-full border border-emerald-500/20 font-medium">
                 <CheckCircle2 className="w-3 h-3" />
                 正常
               </span>
             ) : (
-              <span className="flex items-center gap-1 text-[11px] font-medium text-amber-400 bg-amber-500/10 px-2 py-0.5 rounded-full border border-amber-500/20">
-                <AlertTriangle className="w-3 h-3" />
+              <span className="inline-flex items-center gap-1 text-[11px] text-amber-400 bg-amber-500/10 px-2 py-0.5 rounded-full border border-amber-500/20 font-medium">
+                <AlertCircle className="w-3 h-3" />
                 异常
               </span>
             )}
           </div>
-        </div>
+        </header>
 
-        {/* Windows */}
+        {/* Windows List */}
         {quota.windows && quota.windows.length > 0 && (
-          <div className="space-y-2.5 mt-2">
+          <div className="space-y-2.5">
             {quota.windows.map((win, idx) => (
               <ProgressBar key={idx} window={win} />
             ))}
           </div>
         )}
 
-        {/* Groups (e.g. Antigravity) */}
+        {/* Groups List (e.g. Antigravity) */}
         {quota.groups && quota.groups.length > 0 && (
-          <div className="space-y-3 mt-2">
+          <div className="space-y-3">
             {quota.groups.map((group, gIdx) => (
-              <div key={gIdx} className="space-y-1 bg-slate-950/40 p-2.5 rounded-lg border border-slate-800/40">
-                <div className="text-[11px] font-semibold text-slate-400">{group.name}</div>
+              <div key={gIdx} className="bg-slate-900/40 p-2.5 rounded-xl border border-white/5 space-y-1">
+                <div className="text-[11px] font-semibold text-slate-400 flex items-center justify-between">
+                  <span>{group.name}</span>
+                </div>
                 {group.windows.map((win, wIdx) => (
                   <ProgressBar key={wIdx} window={win} />
                 ))}
@@ -124,16 +182,17 @@ export const QuotaCard: React.FC<QuotaCardProps> = ({ quota }) => {
         )}
 
         {quota.errorMessage && (
-          <p className="text-xs text-amber-400/90 mt-2 bg-amber-950/30 p-2 rounded border border-amber-900/40">
+          <p className="text-xs text-amber-300 mt-2 bg-amber-950/30 p-2.5 rounded-lg border border-amber-800/30">
             {quota.errorMessage}
           </p>
         )}
       </div>
 
-      <div className="mt-4 pt-2.5 border-t border-slate-800/60 flex items-center justify-between text-[11px] text-slate-400">
-        <span>更新于: {new Date(quota.capturedAt).toLocaleTimeString()}</span>
-        <span className="text-slate-400">状态良好</span>
-      </div>
-    </div>
+      {/* Footer Timestamp */}
+      <footer className="mt-4 pt-3 border-t border-white/5 flex items-center justify-between text-[11px] text-slate-400 tabular-nums">
+        <span>更新于 {new Date(quota.capturedAt).toLocaleTimeString()}</span>
+        <span className="text-slate-400">官方 API 读数</span>
+      </footer>
+    </article>
   );
 };
