@@ -11,7 +11,8 @@ const execFileAsync = promisify(execFile);
 const root = fileURLToPath(new URL('../', import.meta.url));
 
 test('npm pack builds a clean source snapshot and includes the published CLI and UI', async (t) => {
-  const temp = fs.mkdtempSync(path.join(os.tmpdir(), 'usage-pack-test-'));
+  // Windows TEMP may use an 8.3 alias (RUNNER~1); Vite/Rollup must see the same canonical root.
+  const temp = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), 'usage-pack-test-')));
   t.after(() => fs.rmSync(temp, { recursive: true, force: true }));
   const source = path.join(temp, 'source');
   fs.mkdirSync(source);
