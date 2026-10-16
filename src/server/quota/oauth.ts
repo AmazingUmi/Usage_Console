@@ -2,6 +2,7 @@ import fs from 'node:fs/promises';
 import fsSync from 'node:fs';
 import path from 'node:path';
 import { CONFIG } from '../config.js';
+import { proxyFetch as fetch } from '../network/proxy.js';
 import type { ProviderQuota, QuotaState, QuotaWindow } from './types.js';
 import { AgyUnavailableError, queryAgyQuota } from './agy.js';
 import { loadAccounts } from '../data/library.js';

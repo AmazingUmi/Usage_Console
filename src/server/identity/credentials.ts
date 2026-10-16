@@ -1,6 +1,7 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import { resolveDataDir } from '../settings.js';
+import { proxyFetch as fetch } from '../network/proxy.js';
 
 /**
  * Subscription logins owned by this console (OpenAI, Claude and Grok).

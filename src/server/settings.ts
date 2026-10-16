@@ -3,6 +3,7 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import type { ScanReport } from './usage/types.js';
+import { validProxyPort } from './network/proxy-config.js';
 
 export interface PathSettings {
   codexDir: string;
@@ -30,6 +31,8 @@ export interface StoredSettings {
   quotaBatteryLow: number;
   /** Seconds between automatic quota reads; 0 means manual refresh only. */
   quotaRefreshIntervalSeconds: number;
+  /** Local HTTP proxy port, applied only on startup; null inherits the environment. */
+  proxyPort: number | null;
   paths: PathSettings;
   accounts: ConsoleAccount[];
   dataDir: string;
@@ -92,6 +95,7 @@ function emptySettings(): StoredSettings {
     quotaBatteryWarning: DEFAULT_BATTERY.warning,
     quotaBatteryLow: DEFAULT_BATTERY.low,
     quotaRefreshIntervalSeconds: DEFAULT_REFRESH_SECONDS,
+    proxyPort: null,
     paths: { ...EMPTY_PATHS },
     accounts: [],
     dataDir: '',
@@ -151,6 +155,7 @@ export function loadSettings(): StoredSettings {
         ? { quotaBatteryWarning: parsed.quotaBatteryWarning!, quotaBatteryLow: parsed.quotaBatteryLow! }
         : { quotaBatteryWarning: DEFAULT_BATTERY.warning, quotaBatteryLow: DEFAULT_BATTERY.low }),
       quotaRefreshIntervalSeconds: validRefresh(parsed.quotaRefreshIntervalSeconds) ? parsed.quotaRefreshIntervalSeconds : DEFAULT_REFRESH_SECONDS,
+      proxyPort: validProxyPort(parsed.proxyPort) ? parsed.proxyPort : null,
       paths: sanitizeStoredPaths(parsed.paths),
       accounts: sanitizeAccounts(parsed.accounts),
       dataDir: typeof parsed.dataDir === 'string' ? parsed.dataDir.trim() : '',
@@ -256,6 +261,7 @@ export function saveSettings(patch: {
   quotaBatteryWarning?: number;
   quotaBatteryLow?: number;
   quotaRefreshIntervalSeconds?: number;
+  proxyPort?: number | null;
   paths?: Partial<PathSettings>;
   accounts?: ConsoleAccount[];
   dataDir?: string;
@@ -277,11 +283,16 @@ export function saveSettings(patch: {
   if (!validRefresh(refresh)) {
     throw new Error(L('刷新间隔无效：填 0（关闭）或 30–3600 秒的整数', 'Invalid refresh interval: use 0 (off) or a whole number from 30 to 3600 seconds'));
   }
+  const proxyPort = patch.proxyPort !== undefined ? patch.proxyPort : current.proxyPort;
+  if (!validProxyPort(proxyPort)) {
+    throw new Error(L('代理端口无效：请输入 1–65535 的整数，或留空跟随环境变量', 'Invalid proxy port: enter an integer from 1 to 65535, or leave empty to use the environment'));
+  }
   const next: StoredSettings = {
     hideAgyClaude: typeof patch.hideAgyClaude === 'boolean' ? patch.hideAgyClaude : current.hideAgyClaude,
     quotaBatteryWarning: warning,
     quotaBatteryLow: low,
     quotaRefreshIntervalSeconds: refresh,
+    proxyPort,
     paths: nextPaths,
     accounts: patch.accounts ? sanitizeAccounts(patch.accounts) : current.accounts,
     dataDir: patch.dataDir !== undefined
@@ -327,6 +338,7 @@ export function settingsView(scan: ScanReport) {
     quotaBatteryWarning: stored.quotaBatteryWarning,
     quotaBatteryLow: stored.quotaBatteryLow,
     quotaRefreshIntervalSeconds: stored.quotaRefreshIntervalSeconds,
+    proxyPort: stored.proxyPort,
     paths: display,
     defaults,
     resolved,

@@ -11,14 +11,16 @@
     "build:server": "tsc -p tsconfig.server.json",
     "build": "pnpm build:client && pnpm build:server",
     "start": "NODE_ENV=production tsx src/server/index.ts",
-    "server": "tsx src/server/index.ts"
+    "server": "tsx src/server/index.ts",
+    "test": "node --import tsx --test tests/*.test.ts"
   },
   "dependencies": {
     "cors": "^2.8.5",
     "express": "^4.21.2",
     "lucide-react": "^1.16.0",
     "react": "^19.0.0",
-    "react-dom": "^19.0.0"
+    "react-dom": "^19.0.0",
+    "undici": "^6.29.1"
   },
   "devDependencies": {
     "@types/cors": "^2.8.17",

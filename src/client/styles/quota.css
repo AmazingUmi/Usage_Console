@@ -1,5 +1,5 @@
 /* ===== Provider quota cards & battery gauges ===== */
-.provider-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(290px, 1fr)); gap: 12px; align-items: stretch; }
+.provider-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(min(100%, 290px), 1fr)); gap: 12px; align-items: stretch; }
 
 .panel.provider-card {
   --pc: var(--muted);

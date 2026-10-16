@@ -1,4 +1,5 @@
 import { L } from '../i18n.js';
+import { proxyFetch as fetch } from '../network/proxy.js';
 import type { QuotaWindow } from '../quota/types.js';
 
 export interface ClaudeSubscription {

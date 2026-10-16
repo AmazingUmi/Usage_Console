@@ -4,6 +4,7 @@ import type {
   ConsoleSettings,
   PathSettings,
   QuotaState,
+  ProxyStatus,
   UsageSummary,
   DailyTrendPoint,
   GroupedUsage,
@@ -71,11 +72,17 @@ export async function fetchSettings(signal?: AbortSignal): Promise<ConsoleSettin
   return readJson<ConsoleSettings>(res, 'Failed to fetch settings');
 }
 
+export async function fetchProxyStatus(signal?: AbortSignal): Promise<ProxyStatus> {
+  const res = await apiFetch(`${API_BASE}/proxy`, { signal, cache: 'no-store' });
+  return readJson<ProxyStatus>(res, 'Failed to check proxy status');
+}
+
 export async function saveSettings(body: {
   hideAgyClaude?: boolean;
   quotaBatteryWarning?: number;
   quotaBatteryLow?: number;
   quotaRefreshIntervalSeconds?: number;
+  proxyPort?: number | null;
   paths?: Partial<PathSettings>;
   accounts?: ConsoleAccount[];
   dataDir?: string;

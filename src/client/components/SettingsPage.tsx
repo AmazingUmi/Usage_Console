@@ -6,6 +6,7 @@ import type { Lang } from '../i18n';
 import { useI18n } from '../i18n';
 import { BatteryThresholdSlider } from './BatteryThresholdSlider';
 import { RefreshIntervalSetting } from './RefreshIntervalSetting';
+import { ProxySetting } from './ProxySetting';
 import { HelpTip } from './HelpTip';
 import { Icon } from './Icon';
 
@@ -253,6 +254,8 @@ export const SettingsPage: React.FC<SettingsPageProps> = ({ open, onToggle, sett
                   </div>
                 </div>
               </section>
+
+              <ProxySetting port={settings.proxyPort ?? null} onSave={(proxyPort) => saveDisplay({ proxyPort })} />
 
               <section className="panel settings-card" aria-labelledby="path-settings-title">
                 <div className="panel-head">

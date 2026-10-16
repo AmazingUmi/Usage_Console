@@ -142,11 +142,28 @@ export interface ScanSourceStatus {
   noteCodes?: string[];
 }
 
+export interface ProxyEndpoint {
+  source: 'settings' | 'environment' | 'system';
+  host: string;
+  port: number;
+}
+
+export interface ProxyStatus {
+  active: ProxyEndpoint | null;
+  detected: ProxyEndpoint | null;
+  restartRequired: boolean;
+  portMismatch: boolean;
+  checkedPort: number | null;
+  /** TCP only: an open local port does not prove that upstream requests work. */
+  listening: boolean | null;
+}
+
 export interface ConsoleSettings {
   hideAgyClaude: boolean;
   quotaBatteryWarning: number;
   quotaBatteryLow: number;
   quotaRefreshIntervalSeconds: number;
+  proxyPort: number | null;
   paths: PathSettings;
   defaults: PathSettings;
   resolved: PathSettings;

@@ -4,6 +4,7 @@ import path from 'node:path';
 import fs from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import { CONFIG } from './config.js';
+import { getProxyStatus, initializeProxy } from './network/proxy.js';
 import { L, langMiddleware } from './i18n.js';
 import { findAgyBinary } from './quota/agy.js';
 import { loadSettings, resolveDataDir, saveSettings, settingsView } from './settings.js';
@@ -19,6 +20,9 @@ import { finishClaudeLogin, pollCodexLogin, pollGrokLogin, startClaudeLogin, sta
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
+
+// Configure the owned HTTP transport and helper environment before any quota/auth requests.
+initializeProxy();
 
 const app = express();
 app.use(cors());
@@ -60,6 +64,14 @@ scheduleQuotaPoll();
 // API Routes
 app.get('/api/health', (_req, res) => {
   res.json({ status: 'ok', time: Date.now() });
+});
+
+app.get('/api/proxy', async (_req, res) => {
+  try {
+    res.set('Cache-Control', 'no-store').json(await getProxyStatus());
+  } catch {
+    res.status(500).json({ error: L('无法检查代理状态，请稍后重试', 'Could not check proxy status; please try again') });
+  }
 });
 
 // Quota routes
