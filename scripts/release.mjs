@@ -39,6 +39,25 @@ export function publicationDecision(integrity, published) {
   throw new Error('This version already exists with different contents. Bump the version; never overwrite or move its tag.');
 }
 
+export async function waitForPublishedIntegrity(integrity, read, {
+  attempts = 31,
+  intervalMs = 10_000,
+  wait = delay,
+  onPending = () => {},
+} = {}) {
+  // npm accepts uploads before registry indexing completes; allow up to five minutes of waiting.
+  for (let attempt = 0; attempt < attempts; attempt += 1) {
+    const published = await read();
+    if (published === integrity) return;
+    if (published !== null) throw new Error('Registry integrity differs from the uploaded tarball');
+    if (attempt + 1 < attempts) {
+      onPending(attempt + 1, attempts);
+      await wait(intervalMs);
+    }
+  }
+  throw new Error('Publish returned successfully, but registry verification timed out. Check npm before retrying.');
+}
+
 function outputs(values) {
   if (process.env.GITHUB_OUTPUT) {
     fs.appendFileSync(process.env.GITHUB_OUTPUT, Object.entries(values).map(([key, value]) => `${key}=${value}\n`).join(''));
@@ -48,7 +67,7 @@ function outputs(values) {
 function publishedIntegrity(spec) {
   let result;
   try {
-    result = execFileSync('npm', ['view', spec, 'dist.integrity', '--json', '--registry', registry], {
+    result = execFileSync('npm', ['view', spec, 'dist.integrity', '--json', '--prefer-online', '--registry', registry], {
       encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'],
     });
   } catch (err) {
@@ -118,16 +137,11 @@ async function main() {
     }
     // Only the final job has OIDC permission. Never rebuild or run lifecycle scripts in that job.
     execFileSync('npm', ['publish', archive, '--ignore-scripts', '--access', 'public', '--tag', info.distTag, '--registry', registry], { stdio: 'inherit' });
-    for (let attempt = 0; attempt < 5; attempt += 1) {
-      const published = publishedIntegrity(spec);
-      if (published === integrity) {
-        console.log(`Verified ${spec} (${info.distTag}) against the tested tarball.`);
-        return;
-      }
-      if (published !== null) throw new Error('Registry integrity differs from the uploaded tarball');
-      await delay(2000);
-    }
-    throw new Error('Publish returned successfully, but registry verification timed out. Check npm before retrying.');
+    await waitForPublishedIntegrity(integrity, () => publishedIntegrity(spec), {
+      onPending: (attempt, attempts) => console.log(`${spec} was accepted; waiting for npm registry indexing (${attempt}/${attempts - 1}).`),
+    });
+    console.log(`Verified ${spec} (${info.distTag}) against the tested tarball.`);
+    return;
   }
   throw new Error('Usage: node scripts/release.mjs <check [tag] | pack <directory> | publish <tarball>>');
 }

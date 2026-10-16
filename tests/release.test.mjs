@@ -5,7 +5,7 @@ import os from 'node:os';
 import path from 'node:path';
 import test from 'node:test';
 import { fileURLToPath } from 'node:url';
-import { archiveIntegrity, assertIntegrity, publicationDecision, releaseMetadata } from '../scripts/release.mjs';
+import { archiveIntegrity, assertIntegrity, publicationDecision, releaseMetadata, waitForPublishedIntegrity } from '../scripts/release.mjs';
 
 const pkg = { name: 'usage-console', version: '0.1.0', repository: { url: 'git+https://github.com/AmazingUmi/Usage_Console.git' } };
 
@@ -29,6 +29,37 @@ test('only missing versions are published; identical retries skip and different 
   assert.equal(publicationDecision('sha512-a', null), 'publish');
   assert.equal(publicationDecision('sha512-a', 'sha512-a'), 'skip');
   for (const existing of ['sha512-b', undefined, '']) assert.throws(() => publicationDecision('sha512-a', existing), /different contents/);
+});
+
+test('registry verification tolerates five minutes of indexing delay without real sleeps', async () => {
+  let reads = 0;
+  const waits = [];
+  await waitForPublishedIntegrity('sha512-a', () => ++reads === 31 ? 'sha512-a' : null, {
+    wait: async (ms) => { waits.push(ms); },
+  });
+  assert.equal(reads, 31);
+  assert.equal(waits.length, 30);
+  assert.equal(waits.reduce((total, ms) => total + ms, 0), 300_000);
+});
+
+test('registry verification fails immediately on different bytes or query errors', async () => {
+  let waits = 0;
+  const options = { wait: async () => { waits += 1; } };
+  await assert.rejects(waitForPublishedIntegrity('sha512-a', () => 'sha512-b', options), /integrity differs/);
+  const networkError = new Error('Registry request failed');
+  await assert.rejects(waitForPublishedIntegrity('sha512-a', () => { throw networkError; }, options), (err) => err === networkError);
+  assert.equal(waits, 0);
+});
+
+test('registry verification is bounded and never sleeps after its final query', async () => {
+  let reads = 0;
+  const waits = [];
+  await assert.rejects(waitForPublishedIntegrity('sha512-a', () => { reads += 1; return null; }, {
+    attempts: 3,
+    wait: async (ms) => { waits.push(ms); },
+  }), /verification timed out/);
+  assert.equal(reads, 3);
+  assert.deepEqual(waits, [10_000, 10_000]);
 });
 
 test('artifact tampering is rejected before any registry operation', (t) => {
