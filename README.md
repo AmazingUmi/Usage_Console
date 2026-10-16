@@ -10,7 +10,7 @@ A local browser dashboard for AI quota, token usage, and estimated spend.
 
 ### 安装与启动
 
-需要 **Node.js 20+**，推荐 Node.js 22 / 24 LTS。npm 包发布后直接安装，使用者不需要 pnpm 或源码目录：
+需要 **Node.js 20+**，推荐 Node.js 22 / 24 LTS。直接通过 npm 安装，使用者不需要 pnpm 或源码目录：
 
 ```bash
 npm install -g usage-console
@@ -28,7 +28,7 @@ usage-console --version
 
 在运行命令的终端按 **Ctrl+C** 停止服务。关闭网页不会停止后台进程；如果通过后台工具启动，请用相应工具停止。
 
-首个 npm 版本发布前，可以使用下方的[源码开发与本地打包](#源码开发与本地打包)。升级已发布版本：
+从源码开发请参阅下方的[源码开发与本地打包](#源码开发与本地打包)。升级到最新版本：
 
 ```bash
 npm install -g usage-console@latest
@@ -125,7 +125,7 @@ smoke 脚本在临时目录仅安装生产依赖，使用隔离 HOME、不打开
 
 ### Install and run
 
-Requires **Node.js 20+**; Node.js 22 / 24 LTS is recommended. Once a version is published to npm, users do not need pnpm or a source checkout:
+Requires **Node.js 20+**; Node.js 22 / 24 LTS is recommended. Install from npm; users do not need pnpm or a source checkout:
 
 ```bash
 npm install -g usage-console
@@ -134,7 +134,7 @@ usage-console
 
 The command opens **http://127.0.0.1:3001**. Use `--port 4010` to change the port, `--no-open` to skip the browser, and `--help` / `--version` for command information. Press **Ctrl+C** in the launching terminal to stop it; closing the browser does not stop the server.
 
-Before the first npm release, build from source as described above. Upgrade with `npm install -g usage-console@latest`.
+To develop from source, see the development instructions above. Upgrade with `npm install -g usage-console@latest`.
 
 ### Features and setup
 
