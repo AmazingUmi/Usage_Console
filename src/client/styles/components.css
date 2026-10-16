@@ -129,8 +129,12 @@ textarea.input { height: auto; padding: 10px 14px; border-radius: 16px; line-hei
   box-shadow: inset 0 1px 0 var(--hairline), 0 0 0 .5px var(--edge), var(--shadow-pop);
   -webkit-backdrop-filter: var(--blur-pop); backdrop-filter: var(--blur-pop);
   font-size: 12.5px; font-weight: 450; line-height: 1.6; white-space: normal; overflow-wrap: anywhere;
+  overflow: auto; scrollbar-width: thin;
   animation: help-pop-in .16s var(--ease);
 }
+.help-pop p { margin: 0 0 8px; }
+.help-pop p:last-child { margin-bottom: 0; }
+.help-pop strong { display: block; margin-bottom: 2px; color: var(--text); font-weight: 650; }
 .help-pop[data-above] { transform: translateY(-100%); }
 @keyframes help-pop-in { from { opacity: 0; translate: 0 4px; } }
 @media (prefers-reduced-motion: reduce) { .help-pop { animation: none; } }

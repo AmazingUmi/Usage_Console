@@ -1,9 +1,9 @@
 import React, { useEffect, useId, useMemo, useRef, useState } from 'react';
 import type { DailyTrendPoint } from '../types';
-import { formatTokens, formatUsd } from '../lib/format';
+import { formatMillis, formatTokPerSec, formatTokens, formatUsd } from '../lib/format';
 import { useI18n } from '../i18n';
 
-export type TrendMetric = 'tokens' | 'cost';
+export type TrendMetric = 'tokens' | 'cost' | 'speed';
 export type TrendKind = 'bar' | 'line';
 
 interface UsageTrendChartProps {
@@ -14,7 +14,7 @@ interface UsageTrendChartProps {
   hidden?: ReadonlySet<string>;
 }
 
-type SeriesKey = 'inputTokens' | 'outputTokens' | 'cacheReadTokens' | 'cacheWriteTokens' | 'estimatedCostUsd';
+type SeriesKey = 'inputTokens' | 'outputTokens' | 'cacheReadTokens' | 'cacheWriteTokens' | 'estimatedCostUsd' | 'tokensPerSecondMedian' | 'ttftMedianMs';
 
 interface Series {
   key: SeriesKey;
@@ -27,9 +27,12 @@ const OUTPUT: Series = { key: 'outputTokens', labelKey: 'trend.output', color: '
 const CACHE_READ: Series = { key: 'cacheReadTokens', labelKey: 'trend.cacheRead', color: 'var(--series-3)' };
 const CACHE_WRITE: Series = { key: 'cacheWriteTokens', labelKey: 'trend.cacheWrite', color: 'var(--series-4)' };
 const COST: Series = { key: 'estimatedCostUsd', labelKey: 'trend.estCost', color: 'var(--series-1)' };
+const SPEED: Series = { key: 'tokensPerSecondMedian', labelKey: 'speed.output', color: 'var(--series-2)' };
+const TTFT: Series = { key: 'ttftMedianMs', labelKey: 'speed.ttft', color: 'var(--series-1)' };
 
 /** Bars stack input + output; lines show every token series on its own (like codex-switch's trend chart). */
 export function seriesFor(metric: TrendMetric, kind: TrendKind = 'bar'): Series[] {
+  if (metric === 'speed') return [SPEED, TTFT];
   if (metric === 'cost') return [COST];
   return kind === 'line' ? [INPUT, OUTPUT, CACHE_READ, CACHE_WRITE] : [INPUT, OUTPUT];
 }
@@ -103,7 +106,7 @@ function monotonePath(points: Array<[number, number]>): string {
 
 const NONE: ReadonlySet<string> = new Set();
 
-export const UsageTrendChart: React.FC<UsageTrendChartProps> = ({ trend, metric, kind, hidden = NONE }) => {
+const TokenTrendChart: React.FC<UsageTrendChartProps> = ({ trend, metric, kind, hidden = NONE }) => {
   const { t, locale } = useI18n();
   const gradientId = `trend-${useId().replace(/:/g, '')}`;
   const hostRef = useRef<HTMLDivElement>(null);
@@ -253,3 +256,192 @@ export const UsageTrendChart: React.FC<UsageTrendChartProps> = ({ trend, metric,
     </div>
   );
 };
+
+function speedRate(point: DailyTrendPoint): number | null {
+  if (!point.speedSamples) return null;
+  const n = point.tokensPerSecondMedian;
+  return n != null && Number.isFinite(n) && n > 0 ? n : null;
+}
+
+function ttftOf(point: DailyTrendPoint): number | null {
+  if (!point.ttftSamples) return null;
+  const n = point.ttftMedianMs;
+  return n != null && Number.isFinite(n) && n > 0 ? n : null;
+}
+
+function lineSegments(points: Array<[number, number] | null>): Array<Array<[number, number]>> {
+  const groups: Array<Array<[number, number]>> = [];
+  let current: Array<[number, number]> = [];
+  for (const point of points) {
+    if (!point) {
+      if (current.length) groups.push(current);
+      current = [];
+      continue;
+    }
+    current.push(point);
+  }
+  if (current.length) groups.push(current);
+  return groups;
+}
+
+function speedTick(n: number): string {
+  if (n <= 0) return '0';
+  if (n >= 100) return String(Math.round(n));
+  return n.toFixed(n >= 10 ? 0 : 1);
+}
+
+function barPath(x: number, top: number, height: number, barW: number): string {
+  const r = Math.min(4, barW / 2, height);
+  return `M ${x} ${top + height} V ${top + r} Q ${x} ${top} ${x + r} ${top} H ${x + barW - r} Q ${x + barW} ${top} ${x + barW} ${top + r} V ${top + height} Z`;
+}
+
+const SPEED_PAD = { top: 10, right: 58, bottom: 26, left: 52 };
+
+/** Output speed on the left axis, time-to-first-token on the right. Missing days stay gaps. */
+const SpeedTrendChart: React.FC<Omit<UsageTrendChartProps, 'metric'>> = ({ trend, kind, hidden = NONE }) => {
+  const { t, locale } = useI18n();
+  const hostRef = useRef<HTMLDivElement>(null);
+  const [width, setWidth] = useState(640);
+  const [hover, setHover] = useState<number | null>(null);
+  const showSpeed = !hidden.has(SPEED.key);
+  const showTtft = !hidden.has(TTFT.key);
+
+  useEffect(() => {
+    const host = hostRef.current;
+    if (!host) return;
+    const update = () => setWidth(Math.max(280, host.clientWidth));
+    update();
+    const observer = new ResizeObserver(update);
+    observer.observe(host);
+    return () => observer.disconnect();
+  }, []);
+
+  const plot = useMemo(() => {
+    const innerW = Math.max(40, width - SPEED_PAD.left - SPEED_PAD.right);
+    const innerH = HEIGHT - SPEED_PAD.top - SPEED_PAD.bottom;
+    const leftMax = niceMax(Math.max(0, ...trend.map((point) => speedRate(point) ?? 0)));
+    const rightMax = niceMax(Math.max(0, ...trend.map((point) => ttftOf(point) ?? 0)));
+    const slot = innerW / Math.max(1, trend.length);
+    const labelStep = Math.max(1, Math.ceil(trend.length / Math.max(2, Math.floor(innerW / 64))));
+    return { innerW, innerH, leftMax, rightMax, slot, labelStep };
+  }, [trend, width]);
+
+  if (trend.length === 0 || trend.every((point) => speedRate(point) == null && ttftOf(point) == null)) {
+    return <div className="trend-chart is-empty">{t('trend.empty.speed')}</div>;
+  }
+
+  const yLeft = (n: number) => SPEED_PAD.top + plot.innerH - (n / plot.leftMax) * plot.innerH;
+  const yRight = (n: number) => SPEED_PAD.top + plot.innerH - (n / plot.rightMax) * plot.innerH;
+  const xOf = (index: number) => SPEED_PAD.left + plot.slot * index + plot.slot / 2;
+  const baseline = yLeft(0);
+  const hovered = hover == null ? null : trend[hover];
+  const tooltipLeft = hover == null ? 0 : xOf(hover);
+  const flip = tooltipLeft > width - 220;
+  const speedPoints = trend.map((point, index): [number, number] | null => {
+    const rate = speedRate(point);
+    return rate == null ? null : [xOf(index), yLeft(rate)];
+  });
+  const ttftPoints = trend.map((point, index): [number, number] | null => {
+    const wait = ttftOf(point);
+    return wait == null ? null : [xOf(index), yRight(wait)];
+  });
+
+  const onMove = (event: React.PointerEvent<SVGSVGElement>) => {
+    const bounds = event.currentTarget.getBoundingClientRect();
+    if (bounds.width <= 0) return;
+    const x = ((event.clientX - bounds.left) / bounds.width) * width - SPEED_PAD.left;
+    const index = Math.floor(x / plot.slot);
+    setHover(index >= 0 && index < trend.length ? index : null);
+  };
+
+  const drawLine = (groups: Array<Array<[number, number]>>, color: string) => groups.map((group, index) => {
+    const line = monotonePath(group);
+    return (
+      <g key={`${color}-${index}`}>
+        <path className="trend-line" d={line} stroke={color} />
+        {group.length === 1 && <circle cx={group[0][0]} cy={group[0][1]} r={3.5} fill={color} />}
+      </g>
+    );
+  });
+
+  return (
+    <div className="trend-chart" ref={hostRef} onPointerLeave={() => setHover(null)}>
+      <svg
+        className="trend-svg"
+        viewBox={`0 0 ${width} ${HEIGHT}`}
+        role="img"
+        aria-label={t('trend.aria.speed')}
+        onPointerMove={onMove}
+      >
+        {[0, 0.25, 0.5, 0.75, 1].map((ratio) => {
+          const y = (showSpeed ? yLeft(plot.leftMax * ratio) : yRight(plot.rightMax * ratio));
+          return (
+            <g key={ratio}>
+              <line className={ratio === 0 ? 'chart-baseline' : 'chart-grid'} x1={SPEED_PAD.left} x2={width - SPEED_PAD.right} y1={y} y2={y} />
+              {showSpeed && <text className="chart-tick" x={SPEED_PAD.left - 8} y={yLeft(plot.leftMax * ratio) + 4} textAnchor="end">{speedTick(plot.leftMax * ratio)}</text>}
+              {showTtft && <text className="chart-tick" x={width - SPEED_PAD.right + 8} y={yRight(plot.rightMax * ratio) + 4} textAnchor="start">{ratio === 0 ? '0' : formatMillis(plot.rightMax * ratio)}</text>}
+            </g>
+          );
+        })}
+        {hover != null && (
+          <rect className="chart-hover-band" x={SPEED_PAD.left + plot.slot * hover} y={SPEED_PAD.top} width={plot.slot} height={plot.innerH} rx={4} />
+        )}
+        {kind === 'bar' && trend.map((point, index) => {
+          const columns: Array<{ key: string; color: string; y: number | null }> = [];
+          if (showSpeed) columns.push({ key: SPEED.key, color: SPEED.color, y: speedRate(point) == null ? null : yLeft(speedRate(point)!) });
+          if (showTtft) columns.push({ key: TTFT.key, color: TTFT.color, y: ttftOf(point) == null ? null : yRight(ttftOf(point)!) });
+          if (columns.length === 0) return null;
+          const gap = columns.length > 1 ? 2 : 0;
+          const barW = Math.max(3, Math.min(14, (plot.slot * 0.72 - gap) / columns.length));
+          const origin = xOf(index) - (columns.length * barW + gap * (columns.length - 1)) / 2;
+          return (
+            <g key={point.date}>
+              {columns.map((column, columnIndex) => {
+                if (column.y == null) return null;
+                const h = Math.max(1, baseline - column.y);
+                return <path key={column.key} d={barPath(origin + columnIndex * (barW + gap), baseline - h, h, barW)} fill={column.color} />;
+              })}
+            </g>
+          );
+        })}
+        {kind === 'line' && showSpeed && drawLine(lineSegments(speedPoints), SPEED.color)}
+        {kind === 'line' && showTtft && drawLine(lineSegments(ttftPoints), TTFT.color)}
+        {kind === 'line' && hover != null && showSpeed && speedPoints[hover] != null && (
+          <circle className="trend-dot" cx={speedPoints[hover]![0]} cy={speedPoints[hover]![1]} r={4} stroke={SPEED.color} />
+        )}
+        {kind === 'line' && hover != null && showTtft && ttftPoints[hover] != null && (
+          <circle className="trend-dot" cx={ttftPoints[hover]![0]} cy={ttftPoints[hover]![1]} r={4} stroke={TTFT.color} />
+        )}
+        {trend.map((point, index) => (
+          index % plot.labelStep === 0 ? (
+            <text key={point.date} className="chart-tick" x={xOf(index)} y={HEIGHT - 8} textAnchor="middle">{dayLabel(point.date)}</text>
+          ) : null
+        ))}
+      </svg>
+      {hovered && (
+        <div
+          className="chart-tooltip"
+          role="status"
+          style={{ left: tooltipLeft, transform: flip ? 'translateX(calc(-100% - 14px))' : 'translateX(14px)' }}
+        >
+          <strong>{hovered.date}</strong>
+          {speedRate(hovered) == null && ttftOf(hovered) == null ? (
+            <div>{t('trend.speedNone')}</div>
+          ) : (
+            <>
+              <div><i style={{ background: SPEED.color }} />{t('speed.output')}<b>{speedRate(hovered) == null ? '—' : t('speed.perSec', { n: formatTokPerSec(speedRate(hovered), locale) })}</b></div>
+              <div><i style={{ background: TTFT.color }} />{t('speed.ttft')}<b>{formatMillis(ttftOf(hovered))}</b></div>
+              <div>{t('trend.speedSamples', { speed: hovered.speedSamples ?? 0, ttft: hovered.ttftSamples ?? 0 })}</div>
+            </>
+          )}
+        </div>
+      )}
+    </div>
+  );
+};
+
+export const UsageTrendChart: React.FC<UsageTrendChartProps> = (props) => (
+  props.metric === 'speed'
+    ? <SpeedTrendChart trend={props.trend} kind={props.kind} hidden={props.hidden} />
+    : <TokenTrendChart {...props} />
+);

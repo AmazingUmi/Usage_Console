@@ -1,6 +1,6 @@
 import React, { useState } from 'react';
-import type { UsageSummary, DailyTrendPoint, GroupedUsage } from '../types';
-import { formatCnyFromUsd, formatTokens, formatUsd } from '../lib/format';
+import type { UsageSummary, DailyTrendPoint, GroupedUsage, SpeedReport } from '../types';
+import { formatCnyFromUsd, formatMillis, formatTokPerSec, formatTokens, formatUsd } from '../lib/format';
 import { useI18n } from '../i18n';
 import { HelpTip } from './HelpTip';
 import type { TrendKind } from './UsageTrendChart';
@@ -13,6 +13,7 @@ interface OverviewDashboardProps {
   models: GroupedUsage[];
   providers: GroupedUsage[];
   clients: GroupedUsage[];
+  speed: SpeedReport | null;
 }
 
 type Dimension = 'client' | 'model' | 'provider';
@@ -26,7 +27,7 @@ const DIMENSIONS: Array<{ id: Dimension; key: string }> = [
 const MAX_ROWS = 8;
 const KIND_KEY = 'usage-console-trend-kind';
 
-export const OverviewDashboard: React.FC<OverviewDashboardProps> = ({ summary, trend, models, providers, clients }) => {
+export const OverviewDashboard: React.FC<OverviewDashboardProps> = ({ summary, trend, models, providers, clients, speed }) => {
   const { t, locale } = useI18n();
   const [metric, setMetric] = useState<TrendMetric>('tokens');
   const [hidden, setHidden] = useState<ReadonlySet<string>>(new Set());
@@ -54,15 +55,28 @@ export const OverviewDashboard: React.FC<OverviewDashboardProps> = ({ summary, t
   const [dimension, setDimension] = useState<Dimension>('client');
 
   const lists: Record<Dimension, GroupedUsage[]> = { client: clients, model: models, provider: providers };
-  const pick = (item: GroupedUsage) => (metric === 'cost' ? item.estimatedCostUsd || 0 : item.totalTokens || 0);
-  const sorted = [...lists[dimension]].sort((a, b) => pick(b) - pick(a));
+  const speedMode = metric === 'speed';
+  const pick = (item: GroupedUsage) => {
+    if (metric === 'cost') return item.estimatedCostUsd || 0;
+    if (speedMode) return item.tokensPerSecondMedian || 0;
+    return item.totalTokens || 0;
+  };
+  const source = speedMode ? lists[dimension].filter((item) => (item.speedSamples ?? 0) > 0) : lists[dimension];
+  const sorted = [...source].sort((a, b) => pick(b) - pick(a));
   const total = sorted.reduce((sum, item) => sum + pick(item), 0);
-  const rows = sorted.slice(0, MAX_ROWS).map((item) => ({ name: item.name, value: pick(item) }));
-  if (sorted.length > MAX_ROWS) {
-    rows.push({ name: t('dist.others', { n: sorted.length - MAX_ROWS }), value: sorted.slice(MAX_ROWS).reduce((sum, item) => sum + pick(item), 0) });
+  const rows = sorted.slice(0, MAX_ROWS).map((item) => ({
+    name: item.name,
+    value: pick(item),
+    ttft: item.ttftMedianMs,
+    samples: item.speedSamples ?? 0,
+  }));
+  const overflow = sorted.length > MAX_ROWS ? sorted.length - MAX_ROWS : 0;
+  if (!speedMode && overflow > 0) {
+    rows.push({ name: t('dist.others', { n: overflow }), value: sorted.slice(MAX_ROWS).reduce((sum, item) => sum + pick(item), 0), ttft: null, samples: 0 });
   }
   const maxRow = Math.max(1, ...rows.map((row) => row.value));
-  const fmt = (n: number) => (metric === 'cost' ? formatUsd(n, 2) : formatTokens(n));
+  const fmt = (n: number) => (metric === 'cost' ? formatUsd(n, 2) : speedMode ? t('speed.perSec', { n: formatTokPerSec(n, locale) }) : formatTokens(n));
+  const speedTotal = speed?.tokensPerSecondMedian;
 
   const avgTokens = summary.requestCount > 0 ? Math.round(summary.totalTokens / summary.requestCount) : 0;
   const cacheBase = summary.cacheReadTokens + summary.inputTokens + summary.cacheWriteTokens;
@@ -98,7 +112,7 @@ export const OverviewDashboard: React.FC<OverviewDashboardProps> = ({ summary, t
           <div className="panel-head">
             <div className="title-row">
               <h3 id="trend-title">{t('trend.title')}</h3>
-              <HelpTip text={t('trend.hint', { n: trend.length })} />
+              <HelpTip text={t(metric === 'speed' ? 'trend.hint.speed' : 'trend.hint', { n: trend.length })} />
             </div>
             <div className="row-wrap">
               <div className="segmented" role="group" aria-label={t('trend.kind')}>
@@ -108,13 +122,14 @@ export const OverviewDashboard: React.FC<OverviewDashboardProps> = ({ summary, t
               <div className="segmented" role="group" aria-label={t('trend.metric')}>
                 <button type="button" aria-pressed={metric === 'tokens'} onClick={() => setMetric('tokens')}>Token</button>
                 <button type="button" aria-pressed={metric === 'cost'} onClick={() => setMetric('cost')}>{t('trend.cost')}</button>
+                <button type="button" aria-pressed={metric === 'speed'} onClick={() => setMetric('speed')}>{t('trend.speed')}</button>
               </div>
             </div>
           </div>
           <div className="chart-body">
             <div className="chart-legend">
               {seriesFor(metric, kind).length > 1 && seriesFor(metric, kind).map((s) => (
-                kind === 'line' ? (
+                kind === 'line' || metric === 'speed' ? (
                   <button
                     key={s.key}
                     type="button"
@@ -146,8 +161,10 @@ export const OverviewDashboard: React.FC<OverviewDashboardProps> = ({ summary, t
             </div>
           </div>
           <div className="breakdown-total">
-            <span>{t('dist.total', { metric: metric === 'cost' ? t('trend.cost') : 'Token' })}</span>
-            <strong>{fmt(total)}</strong>
+            <span>{speedMode
+              ? t('dist.median', { metric: t('speed.output') })
+              : t('dist.total', { metric: metric === 'cost' ? t('trend.cost') : 'Token' })}</span>
+            <strong>{speedMode ? (speedTotal == null ? '—' : t('speed.perSec', { n: formatTokPerSec(speedTotal, locale) })) : fmt(total)}</strong>
           </div>
           <ol className="breakdown-list">
             {rows.map((row) => {
@@ -157,13 +174,14 @@ export const OverviewDashboard: React.FC<OverviewDashboardProps> = ({ summary, t
                   <div className="breakdown-row">
                     <span className="breakdown-name" title={row.name}>{row.name}</span>
                     <span className="breakdown-value">{fmt(row.value)}</span>
-                    <span className="breakdown-pct">{pct.toFixed(pct >= 10 ? 0 : 1)}%</span>
+                    <span className="breakdown-pct" title={speedMode ? t('speed.ttft') : undefined}>{speedMode ? formatMillis(row.ttft) : `${pct.toFixed(pct >= 10 ? 0 : 1)}%`}</span>
                   </div>
                   <div className="breakdown-track"><span style={{ width: `${(row.value / maxRow) * 100}%` }} /></div>
                 </li>
               );
             })}
-            {rows.length === 0 && <li className="empty">{t('dist.none')}</li>}
+            {speedMode && overflow > 0 && <li className="breakdown-more">{t('dist.others', { n: overflow })}</li>}
+            {rows.length === 0 && <li className="empty">{t(speedMode ? 'dist.none.speed' : 'dist.none')}</li>}
           </ol>
         </aside>
       </div>

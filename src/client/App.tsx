@@ -21,6 +21,7 @@ import type {
   TokenUsageRecord,
   UsageRange,
   ConnectionState,
+  SpeedReport,
 } from './types';
 
 const RANGES: Array<{ id: UsageRange; key: string }> = [
@@ -51,6 +52,7 @@ export const App: React.FC = () => {
   const [providers, setProviders] = useState<GroupedUsage[]>([]);
   const [clients, setClients] = useState<GroupedUsage[]>([]);
   const [records, setRecords] = useState<TokenUsageRecord[]>([]);
+  const [speed, setSpeed] = useState<SpeedReport | null>(null);
   const [range, setRange] = useState<UsageRange>('7d');
   const [isRefreshing, setIsRefreshing] = useState(false);
   const [isLoadingUsage, setIsLoadingUsage] = useState(true);
@@ -73,6 +75,7 @@ export const App: React.FC = () => {
     setProviders(data.providers ?? []);
     setClients(data.clients ?? []);
     setRecords(data.records ?? []);
+    setSpeed(data.speed ?? null);
     setLastUpdated(data.lastSyncTime || Date.now());
   }, []);
 
@@ -309,6 +312,7 @@ export const App: React.FC = () => {
               models={models}
               providers={providers}
               clients={clients}
+              speed={speed}
             />
           ) : (
             <div className="panel empty">{isLoadingUsage ? t('overview.loading') : t('overview.none')}</div>
@@ -320,6 +324,7 @@ export const App: React.FC = () => {
           clients={clients}
           providers={providers}
           records={records}
+          speed={speed}
         />
 
         <SettingsPage

@@ -50,7 +50,8 @@
 .breakdown-row { display: flex; align-items: center; gap: 8px; font-size: 13px; }
 .breakdown-name { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .breakdown-value { margin-left: auto; flex: none; font-weight: 600; }
-.breakdown-pct { flex: none; width: 46px; color: var(--muted); font-size: 12px; text-align: right; }
+.breakdown-pct { flex: none; width: 52px; color: var(--muted); font-size: 12px; text-align: right; }
+.breakdown-more { padding: 8px 0 2px; color: var(--muted); font-size: 12px; }
 .breakdown-track { height: 4px; margin-top: 7px; border-radius: 2px; background: var(--track); overflow: hidden; }
 .breakdown-track span { display: block; height: 100%; border-radius: 2px; background: linear-gradient(90deg, var(--accent), var(--accent-hi)); transition: width .4s var(--ease); }
 
@@ -72,6 +73,10 @@
 .pct-cell { display: flex; align-items: center; gap: 8px; min-width: 120px; }
 .pct-cell .breakdown-track { flex: 1; margin: 0; }
 .pct-cell span { width: 40px; color: var(--muted); font-size: 12px; text-align: right; }
+.speed-stats { display: flex; flex-wrap: wrap; gap: 8px 28px; padding: 14px 16px 10px; }
+.speed-stats span { display: block; color: var(--muted); font-size: 12px; }
+.speed-stats strong { font-size: 22px; font-weight: 700; letter-spacing: -.02em; }
+.speed-summary { margin: 0; padding: 0 16px 8px; color: var(--muted); font-size: 12.5px; }
 
 @media (max-width: 1080px) {
   .dash-row { grid-template-columns: 1fr; }

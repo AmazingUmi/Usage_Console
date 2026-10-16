@@ -1,17 +1,18 @@
 import React, { useState } from 'react';
-import type { GroupedUsage, TokenUsageRecord } from '../types';
-import { formatDateTime, formatTokens, formatUsd } from '../lib/format';
+import type { GroupedUsage, SpeedReport, TokenUsageRecord } from '../types';
+import { formatDateTime, formatMillis, formatTokPerSec, formatTokens, formatUsd } from '../lib/format';
 import { useI18n } from '../i18n';
-import { HelpTip } from './HelpTip';
+import { HelpTip, type HelpSection } from './HelpTip';
 
 interface UsageDetailSectionProps {
   models: GroupedUsage[];
   clients: GroupedUsage[];
   providers: GroupedUsage[];
   records: TokenUsageRecord[];
+  speed: SpeedReport | null;
 }
 
-type Tab = 'software' | 'model' | 'records';
+type Tab = 'software' | 'model' | 'records' | 'speed';
 
 function PercentageCell({ value }: { value: number }) {
   const percent = Number.isFinite(value) ? Math.max(0, Math.min(100, value)) : 0;
@@ -60,7 +61,78 @@ const GroupTable: React.FC<{ items: GroupedUsage[]; nameLabel: string; mono?: bo
   );
 };
 
-export const UsageDetailSection: React.FC<UsageDetailSectionProps> = ({ models, clients, records }) => {
+const SPEED_HELP: Array<{ title: string; body: string }> = [
+  { title: 'speed.help.ttftTitle', body: 'speed.help.ttft' },
+  { title: 'speed.help.outputTitle', body: 'speed.help.output' },
+  { title: 'speed.help.medianTitle', body: 'speed.help.median' },
+  { title: 'speed.help.p90Title', body: 'speed.help.p90' },
+  { title: 'speed.help.samplesTitle', body: 'speed.help.samples' },
+  { title: 'speed.help.coverageTitle', body: 'speed.help.coverage' },
+];
+
+function speedHelp(t: (key: string) => string): HelpSection[] {
+  return SPEED_HELP.map((item) => ({ title: t(item.title), body: t(item.body) }));
+}
+
+function SpeedTable({ speed }: { speed: SpeedReport | null }) {
+  const { t, locale } = useI18n();
+  const rate = (value: number | null) => (value == null ? '—' : t('speed.perSec', { n: formatTokPerSec(value, locale) }));
+  return (
+    <>
+      {speed && (speed.ttftSamples > 0 || speed.speedSamples > 0) ? (
+        <>
+          <div className="speed-stats">
+            <div>
+              <span>{t('speed.ttft')}</span>
+              <strong>{formatMillis(speed.ttftMedianMs)}</strong>
+            </div>
+            <div>
+              <span>{t('speed.output')}</span>
+              <strong>{rate(speed.tokensPerSecondMedian)}</strong>
+            </div>
+          </div>
+          <p className="speed-summary">{t('speed.summary', {
+            requests: speed.requestCount,
+            ttft: speed.ttftSamples,
+            speed: speed.speedSamples,
+          })}</p>
+          <table className="data-table">
+            <thead>
+              <tr>
+                <th>{t('detail.model')}</th>
+                <th>{t('detail.software')}</th>
+                <th className="num">{t('speed.ttft')}</th>
+                <th className="num">{t('speed.ttftP90')}</th>
+                <th className="num">{t('speed.ttftSamples')}</th>
+                <th className="num">{t('speed.output')}</th>
+                <th className="num">{t('speed.outputP90')}</th>
+                <th className="num">{t('speed.speedSamples')}</th>
+              </tr>
+            </thead>
+            <tbody>
+              {speed.groups.map((group) => (
+                <tr key={`${group.client}:${group.model}`}>
+                  <td className="strong mono">{group.model}</td>
+                  <td><span className="chip">{group.client}</span></td>
+                  <td className="num">{formatMillis(group.ttftMedianMs)}</td>
+                  <td className="num muted">{formatMillis(group.ttftP90Ms)}</td>
+                  <td className="num">{group.ttftSamples.toLocaleString(locale)}</td>
+                  <td className="num strong">{rate(group.tokensPerSecondMedian)}</td>
+                  <td className="num muted">{rate(group.tokensPerSecondP90)}</td>
+                  <td className="num">{group.speedSamples.toLocaleString(locale)}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </>
+      ) : (
+        <p className="empty">{t('speed.empty')}</p>
+      )}
+    </>
+  );
+}
+
+export const UsageDetailSection: React.FC<UsageDetailSectionProps> = ({ models, clients, records, speed }) => {
   const { t } = useI18n();
   const [tab, setTab] = useState<Tab>('software');
 
@@ -69,7 +141,9 @@ export const UsageDetailSection: React.FC<UsageDetailSectionProps> = ({ models, 
       <div className="section-heading">
         <div className="title-row">
           <h2 id="usage-title">{t('detail.title')}</h2>
-          <HelpTip text={t('detail.hint')} />
+          {tab === 'speed'
+            ? <HelpTip label={t('speed.help')} sections={speedHelp(t)} />
+            : <HelpTip text={t('detail.hint')} />}
         </div>
         <div className="segmented" role="group" aria-label={t('detail.aria')}>
           <button type="button" aria-pressed={tab === 'software'} onClick={() => setTab('software')}>
@@ -81,12 +155,16 @@ export const UsageDetailSection: React.FC<UsageDetailSectionProps> = ({ models, 
           <button type="button" aria-pressed={tab === 'records'} onClick={() => setTab('records')}>
             {t('detail.recent')}<span className="count">{records.length}</span>
           </button>
+          <button type="button" aria-pressed={tab === 'speed'} onClick={() => setTab('speed')}>
+            {t('speed.tab')}<span className="count">{speed?.speedSamples ?? 0}</span>
+          </button>
         </div>
       </div>
 
       <div className="panel table-scroll">
         {tab === 'software' && <GroupTable items={clients} nameLabel={t('detail.software')} />}
         {tab === 'model' && <GroupTable items={models} nameLabel={t('detail.model')} mono />}
+        {tab === 'speed' && <SpeedTable speed={speed} />}
         {tab === 'records' && (
           <table className="data-table">
             <thead>

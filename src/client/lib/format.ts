@@ -18,6 +18,20 @@ export function formatCnyFromUsd(num: number | null | undefined, rate = 7.25): s
   return `¥${(n * rate).toFixed(2)}`;
 }
 
+export function formatMillis(ms: number | null | undefined): string {
+  if (ms == null || !Number.isFinite(ms)) return '—';
+  if (ms < 1000) return `${Math.round(ms)}ms`;
+  if (ms < 10_000) return `${(ms / 1000).toFixed(1)}s`;
+  return `${Math.round(ms / 1000)}s`;
+}
+
+export function formatTokPerSec(value: number | null | undefined, locale?: string): string {
+  if (value == null || !Number.isFinite(value)) return '—';
+  return value >= 100
+    ? Math.round(value).toLocaleString(locale)
+    : value.toLocaleString(locale, { minimumFractionDigits: 1, maximumFractionDigits: 1 });
+}
+
 export function formatDateTime(timestamp: number | null | undefined): string {
   const n = Number(timestamp);
   if (!Number.isFinite(n) || n <= 0) return '—';

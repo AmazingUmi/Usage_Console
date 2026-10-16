@@ -15,6 +15,10 @@ export interface TokenUsageRecord {
   source?: string;
   sessionId?: string;
   userId?: string;
+  /** Wait from request start to the first token, including thinking. Absent when it cannot be separated. */
+  ttftMs?: number;
+  /** Generation window after the first token. Output speed is `output / (decodeMs / 1000)`. */
+  decodeMs?: number;
 }
 
 export interface UsageSummary {
@@ -38,6 +42,12 @@ export interface DailyTrendPoint {
   reasoningTokens: number;
   estimatedCostUsd: number;
   requestCount: number;
+  /** Median wait until the first token. Null when that day has no split measurement. */
+  ttftMedianMs: number | null;
+  /** Median output tokens per second after the first token. Null when that day has none. */
+  tokensPerSecondMedian: number | null;
+  ttftSamples: number;
+  speedSamples: number;
 }
 
 export interface ScanSourceStatus {
@@ -67,6 +77,10 @@ export interface GroupedUsage {
   estimatedCostUsd: number;
   requestCount: number;
   percentage: number;
+  ttftMedianMs?: number | null;
+  tokensPerSecondMedian?: number | null;
+  ttftSamples?: number;
+  speedSamples?: number;
 }
 
 export type UsageRange = 'today' | '7d' | '30d' | 'all';

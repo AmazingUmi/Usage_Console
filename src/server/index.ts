@@ -133,6 +133,7 @@ async function usageOverview(range: UsageRange, days: number, limit: number, exc
     providers: usageStore.getByProvider(range, options),
     clients: usageStore.getByClient(range, options),
     records: usageStore.getRecentRecords(limit, range, options),
+    speed: usageStore.getSpeed(range, options),
     lastSyncTime: usageStore.getLastSyncTime(),
   };
 }

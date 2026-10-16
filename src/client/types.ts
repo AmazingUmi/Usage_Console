@@ -58,6 +58,10 @@ export interface DailyTrendPoint {
   reasoningTokens?: number;
   estimatedCostUsd: number;
   requestCount: number;
+  ttftMedianMs?: number | null;
+  tokensPerSecondMedian?: number | null;
+  ttftSamples?: number;
+  speedSamples?: number;
 }
 
 export interface GroupedUsage {
@@ -69,6 +73,10 @@ export interface GroupedUsage {
   estimatedCostUsd: number;
   requestCount: number;
   percentage: number;
+  ttftMedianMs?: number | null;
+  tokensPerSecondMedian?: number | null;
+  ttftSamples?: number;
+  speedSamples?: number;
 }
 
 export interface TokenUsageRecord {
@@ -86,6 +94,8 @@ export interface TokenUsageRecord {
   estimatedCostUsd?: number;
   source?: string;
   sessionId?: string;
+  ttftMs?: number;
+  decodeMs?: number;
 }
 
 export type UsageRange = 'today' | '7d' | '30d' | 'all';
@@ -98,7 +108,28 @@ export interface UsageOverview {
   providers: GroupedUsage[];
   clients: GroupedUsage[];
   records: TokenUsageRecord[];
+  speed?: SpeedReport;
   lastSyncTime: number;
+}
+
+export interface SpeedGroup {
+  model: string;
+  client: string;
+  ttftSamples: number;
+  speedSamples: number;
+  ttftMedianMs: number | null;
+  ttftP90Ms: number | null;
+  tokensPerSecondMedian: number | null;
+  tokensPerSecondP90: number | null;
+}
+
+export interface SpeedReport {
+  ttftSamples: number;
+  speedSamples: number;
+  requestCount: number;
+  ttftMedianMs: number | null;
+  tokensPerSecondMedian: number | null;
+  groups: SpeedGroup[];
 }
 
 export type ConnectionState = 'connecting' | 'connected' | 'offline';
