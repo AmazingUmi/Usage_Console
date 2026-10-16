@@ -1,7 +1,9 @@
+import { L } from './i18n.js';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import type { ScanReport } from './usage/types.js';
+import { validProxyPort } from './network/proxy-config.js';
 
 export interface PathSettings {
   codexDir: string;
@@ -24,6 +26,13 @@ export interface ConsoleAccount {
 
 export interface StoredSettings {
   hideAgyClaude: boolean;
+  /** Remaining-percent boundaries for battery colours: at or below `low` is red, below `warning` is amber. */
+  quotaBatteryWarning: number;
+  quotaBatteryLow: number;
+  /** Seconds between automatic quota reads; 0 means manual refresh only. */
+  quotaRefreshIntervalSeconds: number;
+  /** Local HTTP proxy port, applied only on startup; null inherits the environment. */
+  proxyPort: number | null;
   paths: PathSettings;
   accounts: ConsoleAccount[];
   dataDir: string;
@@ -33,14 +42,13 @@ export interface RuntimePaths {
   home: string;
   codex: string;
   codexSessions: string;
-  codexAuth: string;
   pi: string;
   piAgent: string;
-  piQuotaMonitor: string;
-  piQuotaReadings: string;
   piUsage: string;
   gemini: string;
   claudeProjects: string;
+  /** Every Claude projects dir to scan: the configured one, or all default locations that exist. */
+  claudeProjectsAll: string[];
   grokSessions: string;
 }
 
@@ -76,8 +84,33 @@ export function defaultDataDir(): string {
   return path.join(os.homedir(), '.usage-console');
 }
 
+export const DEFAULT_BATTERY = { warning: 50, low: 10 } as const;
+export const DEFAULT_REFRESH_SECONDS = 120;
+const MIN_REFRESH_SECONDS = 30;
+const MAX_REFRESH_SECONDS = 3600;
+
 function emptySettings(): StoredSettings {
-  return { hideAgyClaude: true, paths: { ...EMPTY_PATHS }, accounts: [], dataDir: '' };
+  return {
+    hideAgyClaude: true,
+    quotaBatteryWarning: DEFAULT_BATTERY.warning,
+    quotaBatteryLow: DEFAULT_BATTERY.low,
+    quotaRefreshIntervalSeconds: DEFAULT_REFRESH_SECONDS,
+    proxyPort: null,
+    paths: { ...EMPTY_PATHS },
+    accounts: [],
+    dataDir: '',
+  };
+}
+
+function validBattery(warning: unknown, low: unknown): boolean {
+  return typeof warning === 'number' && typeof low === 'number'
+    && Number.isFinite(warning) && Number.isFinite(low)
+    && low >= 0 && warning <= 100 && low < warning;
+}
+
+function validRefresh(value: unknown): value is number {
+  return typeof value === 'number' && Number.isInteger(value)
+    && (value === 0 || (value >= MIN_REFRESH_SECONDS && value <= MAX_REFRESH_SECONDS));
 }
 
 function sanitizeAccounts(input: unknown): ConsoleAccount[] {
@@ -118,6 +151,11 @@ export function loadSettings(): StoredSettings {
     const parsed = JSON.parse(raw) as Partial<StoredSettings>;
     storedCache = {
       hideAgyClaude: parsed.hideAgyClaude !== false,
+      ...(validBattery(parsed.quotaBatteryWarning, parsed.quotaBatteryLow)
+        ? { quotaBatteryWarning: parsed.quotaBatteryWarning!, quotaBatteryLow: parsed.quotaBatteryLow! }
+        : { quotaBatteryWarning: DEFAULT_BATTERY.warning, quotaBatteryLow: DEFAULT_BATTERY.low }),
+      quotaRefreshIntervalSeconds: validRefresh(parsed.quotaRefreshIntervalSeconds) ? parsed.quotaRefreshIntervalSeconds : DEFAULT_REFRESH_SECONDS,
+      proxyPort: validProxyPort(parsed.proxyPort) ? parsed.proxyPort : null,
       paths: sanitizeStoredPaths(parsed.paths),
       accounts: sanitizeAccounts(parsed.accounts),
       dataDir: typeof parsed.dataDir === 'string' ? parsed.dataDir.trim() : '',
@@ -131,8 +169,8 @@ export function loadSettings(): StoredSettings {
 export function expandUserPath(input: string): string {
   const trimmed = input.trim();
   if (!trimmed) return '';
-  if (trimmed.includes('\0')) throw new Error('路径包含非法字符');
-  if (trimmed.length > 1024) throw new Error('路径过长');
+  if (trimmed.includes('\0')) throw new Error(L('路径包含非法字符', 'The path contains invalid characters'));
+  if (trimmed.length > 1024) throw new Error(L('路径过长', 'The path is too long'));
   if (trimmed === '~') return os.homedir();
   if (trimmed.startsWith('~/') || trimmed.startsWith('~\\')) {
     return path.resolve(path.join(os.homedir(), trimmed.slice(2)));
@@ -153,6 +191,24 @@ function normalizeClaudeDir(dir: string): string {
   return dir;
 }
 
+/**
+ * Claude Code writes transcripts to <config>/projects. The config dir is $CLAUDE_CONFIG_DIR (comma separated),
+ * ~/.claude, or ~/.config/claude on newer Linux installs — scan every one that exists.
+ */
+function defaultClaudeProjectDirs(): string[] {
+  const home = os.homedir();
+  const dirs = (process.env.CLAUDE_CONFIG_DIR || '')
+    .split(',')
+    .map((item) => item.trim())
+    .filter(Boolean)
+    .map((dir) => normalizeClaudeDir(expandUserPath(dir)));
+  dirs.push(path.join(home, '.claude', 'projects'));
+  dirs.push(path.join(process.env.XDG_CONFIG_HOME || path.join(home, '.config'), 'claude', 'projects'));
+  const uniqueDirs = Array.from(new Set(dirs.map((dir) => path.resolve(dir))));
+  const existing = uniqueDirs.filter((dir) => fs.existsSync(dir));
+  return existing.length > 0 ? existing : [uniqueDirs[uniqueDirs.length - 2]];
+}
+
 function computeRuntimePaths(): RuntimePaths {
   const settings = loadSettings();
   const defaults = defaultPaths();
@@ -160,19 +216,20 @@ function computeRuntimePaths(): RuntimePaths {
   const codexDir = pick('codexDir');
   const piAgentDir = pick('piAgentDir');
   const claudeProjectsDir = normalizeClaudeDir(pick('claudeProjectsDir'));
+  const claudeProjectsAll = settings.paths.claudeProjectsDir
+    ? [claudeProjectsDir]
+    : defaultClaudeProjectDirs();
   const grokSessionsDir = pick('grokSessionsDir');
   return {
     home: os.homedir(),
     codex: codexDir,
     codexSessions: path.join(codexDir, 'sessions'),
-    codexAuth: path.join(codexDir, 'auth.json'),
     pi: path.dirname(piAgentDir),
     piAgent: piAgentDir,
-    piQuotaMonitor: path.join(piAgentDir, 'pi-quota-monitor'),
-    piQuotaReadings: path.join(piAgentDir, 'pi-quota-monitor', 'quota-readings'),
     piUsage: path.join(piAgentDir, 'pi-quota-monitor', 'usage'),
     gemini: path.join(os.homedir(), '.gemini'),
-    claudeProjects: claudeProjectsDir,
+    claudeProjects: claudeProjectsAll.find((dir) => fs.existsSync(dir)) || claudeProjectsDir,
+    claudeProjectsAll,
     grokSessions: grokSessionsDir,
   };
 }
@@ -187,7 +244,7 @@ function invalidateRuntimePaths(): void {
 }
 
 function toOverride(value: unknown, fallback: string): string {
-  if (typeof value !== 'string') throw new Error('路径必须是字符串');
+  if (typeof value !== 'string') throw new Error(L('路径必须是字符串', 'The path must be a string'));
   const trimmed = value.trim();
   if (!trimmed) return '';
   const expanded = expandUserPath(trimmed);
@@ -201,6 +258,10 @@ export function resolveDataDir(): string {
 
 export function saveSettings(patch: {
   hideAgyClaude?: boolean;
+  quotaBatteryWarning?: number;
+  quotaBatteryLow?: number;
+  quotaRefreshIntervalSeconds?: number;
+  proxyPort?: number | null;
   paths?: Partial<PathSettings>;
   accounts?: ConsoleAccount[];
   dataDir?: string;
@@ -213,8 +274,25 @@ export function saveSettings(patch: {
       if (patch.paths[key] !== undefined) nextPaths[key] = toOverride(patch.paths[key], defaults[key]);
     }
   }
+  const warning = patch.quotaBatteryWarning ?? current.quotaBatteryWarning;
+  const low = patch.quotaBatteryLow ?? current.quotaBatteryLow;
+  if (!validBattery(warning, low)) {
+    throw new Error(L('电池阈值无效：需满足 0 ≤ 低 < 警告 ≤ 100', 'Invalid battery thresholds: need 0 ≤ low < warning ≤ 100'));
+  }
+  const refresh = patch.quotaRefreshIntervalSeconds ?? current.quotaRefreshIntervalSeconds;
+  if (!validRefresh(refresh)) {
+    throw new Error(L('刷新间隔无效：填 0（关闭）或 30–3600 秒的整数', 'Invalid refresh interval: use 0 (off) or a whole number from 30 to 3600 seconds'));
+  }
+  const proxyPort = patch.proxyPort !== undefined ? patch.proxyPort : current.proxyPort;
+  if (!validProxyPort(proxyPort)) {
+    throw new Error(L('代理端口无效：请输入 1–65535 的整数，或留空跟随环境变量', 'Invalid proxy port: enter an integer from 1 to 65535, or leave empty to use the environment'));
+  }
   const next: StoredSettings = {
     hideAgyClaude: typeof patch.hideAgyClaude === 'boolean' ? patch.hideAgyClaude : current.hideAgyClaude,
+    quotaBatteryWarning: warning,
+    quotaBatteryLow: low,
+    quotaRefreshIntervalSeconds: refresh,
+    proxyPort,
     paths: nextPaths,
     accounts: patch.accounts ? sanitizeAccounts(patch.accounts) : current.accounts,
     dataDir: patch.dataDir !== undefined
@@ -257,13 +335,18 @@ export function settingsView(scan: ScanReport) {
   };
   return {
     hideAgyClaude: stored.hideAgyClaude,
+    quotaBatteryWarning: stored.quotaBatteryWarning,
+    quotaBatteryLow: stored.quotaBatteryLow,
+    quotaRefreshIntervalSeconds: stored.quotaRefreshIntervalSeconds,
+    proxyPort: stored.proxyPort,
     paths: display,
     defaults,
     resolved,
+    claudeProjectsAll: runtime.claudeProjectsAll,
     availability: {
       codexDir: pathExists(resolved.codexDir),
       piAgentDir: pathExists(resolved.piAgentDir),
-      claudeProjectsDir: pathExists(resolved.claudeProjectsDir),
+      claudeProjectsDir: runtime.claudeProjectsAll.some(pathExists),
       grokSessionsDir: pathExists(resolved.grokSessionsDir),
     },
     accounts: stored.accounts,

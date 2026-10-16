@@ -15,7 +15,7 @@ const TYPE_PROVIDER: Record<AccountType, string> = {
 };
 
 export const ACCOUNT_TYPE_LABEL: Record<AccountType, string> = {
-  gpt: 'GPT',
+  gpt: 'OpenAI',
   claude: 'Claude',
   grok: 'Grok',
   agy: 'AGY',
@@ -25,51 +25,59 @@ function matchesType(quota: ProviderQuota, type: AccountType): boolean {
   return TYPE_MATCH[type].test(quota.provider) || TYPE_MATCH[type].test(quota.displayName);
 }
 
-/** Only accounts explicitly added in settings get a quota card. */
-export function quotaCardsForAccounts(live: ProviderQuota[], accounts: ConsoleAccount[]): ProviderQuota[] {
+function stripEmail(name: string): string {
+  return name.replace(/\s*\([^)]*@[^)]*\)\s*$/, '');
+}
+
+/**
+ * One card per added account. What a card shows is decided here, in this order:
+ *  1. needs a console login and has none            -> "not signed in" (known from settings, no waiting)
+ *  2. quota not read yet (or the login just landed)  -> "loading"; the server being unreachable shows an error
+ *  3. the server's reading                           -> ok / stale / rate limited / failed / login expired
+ */
+export function quotaCardsForAccounts(
+  live: ProviderQuota[],
+  accounts: ConsoleAccount[],
+  state: { loaded: boolean; reachable: boolean },
+): ProviderQuota[] {
   const used = new Set<ProviderQuota>();
   return accounts.map((account) => {
-    const match = live.find((item) => !used.has(item) && item.accountId && item.accountId === account.userId)
-      || live.find((item) => !used.has(item) && matchesType(item, account.type));
-    const snapshot = account.subscription;
-    if (match) {
-      used.add(match);
-      return {
-        ...match,
-        displayName: account.label || match.displayName,
-        plan: match.plan || snapshot?.plan,
-        windows: match.windows?.length ? match.windows : snapshot?.windows,
-        capturedAt: match.capturedAt || snapshot?.capturedAt || 0,
-        status: match.windows?.length || snapshot?.windows?.length ? 'ok' : match.status,
-        userId: account.userId,
-        notes: account.notes,
-        accountCardId: account.id,
-      };
-    }
-    if (snapshot?.windows?.length) {
-      return {
-        provider: TYPE_PROVIDER[account.type],
-        displayName: account.label || account.email || ACCOUNT_TYPE_LABEL[account.type],
-        plan: snapshot.plan || '订阅',
-        capturedAt: snapshot.capturedAt,
-        status: 'ok',
-        windows: snapshot.windows,
-        userId: account.userId,
-        notes: account.notes,
-        accountCardId: account.id,
-      };
-    }
-    return {
-      provider: TYPE_PROVIDER[account.type],
-      displayName: account.label || account.email || ACCOUNT_TYPE_LABEL[account.type],
-      capturedAt: 0,
-      status: 'unconfigured',
-      errorMessage: account.type === 'claude'
-        ? '已链接账户，但还没有订阅额度。请重新认证登录一次，使用 Claude 订阅账号，而不是 API Key。'
-        : '已识别账户，但本机当前登录读不到该账户额度。',
+    const needsLogin = account.type !== 'agy';
+    const base = {
       userId: account.userId,
+      email: account.email,
       notes: account.notes,
       accountCardId: account.id,
+      accountType: account.type,
+      ownLogin: account.ownLogin,
+      provider: TYPE_PROVIDER[account.type],
+      displayName: account.label || ACCOUNT_TYPE_LABEL[account.type],
+      capturedAt: 0,
+    };
+
+    if (needsLogin && !account.ownLogin) {
+      return { ...base, status: 'unconfigured' as const, errorCode: 'login_required' as const };
+    }
+
+    const match = live.find((item) => !used.has(item) && item.accountId && item.accountId === account.userId)
+      || live.find((item) => !used.has(item) && !item.accountId && matchesType(item, account.type));
+    // Right after a login the server may still hold the "not signed in" card from before it; wait for the new read.
+    const outdated = match?.errorCode === 'login_required';
+
+    if (!match || outdated || !state.loaded) {
+      if (match) used.add(match);
+      return state.loaded || state.reachable
+        ? { ...base, status: 'loading' as const }
+        : { ...base, status: 'error' as const, errorCode: 'offline' as const };
+    }
+
+    used.add(match);
+    return {
+      ...match,
+      ...base,
+      displayName: account.label || stripEmail(match.displayName),
+      plan: match.plan,
+      capturedAt: match.capturedAt,
     };
   });
 }

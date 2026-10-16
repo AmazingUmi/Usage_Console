@@ -1,17 +1,19 @@
 /* ===== Fallbacks & user preferences ===== */
 @supports not ((backdrop-filter: blur(1px)) or (-webkit-backdrop-filter: blur(1px))) {
-  :root { --fill-1: var(--solid); --fill-3: var(--solid); }
+  :root { --fill-1: var(--solid); --fill-3: var(--solid); --shell: var(--solid); }
 }
 @media (prefers-reduced-transparency: reduce) {
-  :root { --fill-1: var(--solid); --fill-2: var(--solid-2); --fill-3: var(--solid); --blur: none; --blur-pop: none; }
-  .panel, .app-header, .help-content, .trend-tooltip, .line-tooltip { -webkit-backdrop-filter: none; backdrop-filter: none; }
+  :root { --fill-1: var(--solid); --fill-3: var(--solid); --shell: var(--solid); --blur: none; --blur-pop: none; --blur-bar: none; }
 }
 @media (prefers-reduced-motion: reduce) {
   html { scroll-behavior: auto; }
   *, *::before, *::after { transition: none !important; animation: none !important; }
 }
 @media (forced-colors: active) {
-  .battery, .panel, .app-header { border: 1px solid CanvasText; }
-  .battery-fill { background: Highlight; box-shadow: none; }
-  .connection-status { forced-color-adjust: none; }
+  .battery-fill, .breakdown-track span { background: Highlight; box-shadow: none; }
+  .battery, .panel, .section, .app-header { border: 1px solid CanvasText; }
+  .connection-status, .dot, .badge::before { forced-color-adjust: none; }
+  .countdown-gauge .halo { display: none; }
+  .countdown-gauge .disc { background: Canvas; box-shadow: none; }
+  .countdown-gauge .arc, .countdown-gauge .tr { stroke: CanvasText; }
 }

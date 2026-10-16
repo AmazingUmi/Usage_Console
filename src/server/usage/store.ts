@@ -5,6 +5,8 @@ import { CONFIG } from '../config.js';
 import type { TokenUsageRecord, UsageSummary, DailyTrendPoint, GroupedUsage, UsageRange, ScanReport, ScanSourceStatus } from './types.js';
 import { estimateCost } from './pricing.js';
 import { scanClaudeConversations } from './claude-sessions.js';
+import { parseCodexSession } from './codex-sessions.js';
+import { speedWindow, summarizeSpeed, type SpeedReport } from './speed.js';
 
 function toEpoch(value: unknown, fallback = Date.now()): number {
   if (typeof value === 'number' && Number.isFinite(value)) {
@@ -262,33 +264,8 @@ class UsageStore {
       for (const filePath of files) {
         try {
           const lines = await readLines(filePath);
-          let currentModel = 'gpt-4o';
-          for (const line of lines) {
-            if (!line.trim()) continue;
-            try {
-              const json = JSON.parse(line);
-              if (json.type === 'turn_context' && json.payload?.model) {
-                currentModel = json.payload.model;
-                continue;
-              }
-              if (json.type !== 'event_msg' || json.payload?.type !== 'token_count' || !json.payload.info?.last_token_usage) {
-                continue;
-              }
-              const usage = json.payload.info.last_token_usage;
-              if (addRecord({
-                timestamp: toEpoch(json.timestamp),
-                client: 'codex',
-                provider: 'openai-codex',
-                model: currentModel,
-                input: usage.input_tokens || 0,
-                output: usage.output_tokens || 0,
-                reasoning: usage.reasoning_output_tokens || 0,
-                cacheRead: usage.cached_input_tokens || 0,
-                totalTokens: usage.total_tokens || ((usage.input_tokens || 0) + (usage.output_tokens || 0)),
-                source: 'codex-session',
-                sessionId: filePath,
-              })) status.records += 1;
-            } catch {}
+          for (const record of parseCodexSession(lines, filePath)) {
+            if (addRecord(record)) status.records += 1;
           }
         } catch {}
       }
@@ -301,26 +278,33 @@ class UsageStore {
   }
 
   private async ingestClaudeSessions(addRecord: (rec: TokenUsageRecord) => boolean): Promise<void> {
-    const claudeDir = CONFIG.paths.claudeProjects;
+    const dirs = CONFIG.paths.claudeProjectsAll;
     const status: ScanSourceStatus = {
       id: 'claude',
       label: 'Claude 对话',
-      path: claudeDir,
+      path: dirs.join('，'),
       exists: false,
       filesScanned: 0,
       records: 0,
     };
     try {
-      const scanned = scanClaudeConversations(claudeDir);
+      const scanned = scanClaudeConversations(dirs);
       status.exists = scanned.exists;
       status.filesScanned = scanned.filesScanned;
       for (const record of scanned.records) {
         if (addRecord(record)) status.records += 1;
       }
-      const notes = ['按消息去重，含主会话与子代理'];
-      if (scanned.truncated) notes.push(`仅保留最近 ${scanned.filesScanned} 个文件`);
-      if (scanned.errors > 0) notes.push(`${scanned.errors} 个文件读取失败`);
-      status.note = notes.join('；');
+      const notes = ['Deduplicated per message, including sub-agents'];
+      status.noteCodes = ['dedupe'];
+      if (scanned.truncated) {
+        notes.push(`Only the latest ${scanned.filesScanned} files kept`);
+        status.noteCodes.push(`truncated:${scanned.filesScanned}`);
+      }
+      if (scanned.errors > 0) {
+        notes.push(`${scanned.errors} files could not be read`);
+        status.noteCodes.push(`errors:${scanned.errors}`);
+      }
+      status.note = notes.join('; ');
       this.noteSource(status);
     } catch (err) {
       status.note = (err as Error).message;
@@ -415,9 +399,14 @@ class UsageStore {
         reasoningTokens: 0,
         estimatedCostUsd: 0,
         requestCount: 0,
+        ttftMedianMs: null,
+        tokensPerSecondMedian: null,
+        ttftSamples: 0,
+        speedSamples: 0,
       });
     }
 
+    const byDay = new Map<string, TokenUsageRecord[]>();
     for (const record of source) {
       const dateStr = localDateKey(new Date(record.timestamp));
       const point = map.get(dateStr);
@@ -430,6 +419,13 @@ class UsageStore {
       point.reasoningTokens += record.reasoning || 0;
       point.estimatedCostUsd += record.estimatedCostUsd || 0;
       point.requestCount += 1;
+      const bucket = byDay.get(dateStr);
+      if (bucket) bucket.push(record);
+      else byDay.set(dateStr, [record]);
+    }
+
+    for (const point of map.values()) {
+      Object.assign(point, speedWindow(byDay.get(point.date) ?? []));
     }
 
     return Array.from(map.values());
@@ -438,6 +434,7 @@ class UsageStore {
   private groupRecords(records: TokenUsageRecord[], getKey: (record: TokenUsageRecord) => string): GroupedUsage[] {
     const totalAllTokens = records.reduce((sum, record) => sum + (record.totalTokens || 0), 0) || 1;
     const map = new Map<string, GroupedUsage>();
+    const buckets = new Map<string, TokenUsageRecord[]>();
 
     for (const record of records) {
       const name = getKey(record) || 'unknown';
@@ -454,6 +451,7 @@ class UsageStore {
           percentage: 0,
         };
         map.set(name, item);
+        buckets.set(name, []);
       }
       item.totalTokens += record.totalTokens || 0;
       item.inputTokens += record.input || 0;
@@ -461,11 +459,13 @@ class UsageStore {
       item.reasoningTokens += record.reasoning || 0;
       item.estimatedCostUsd += record.estimatedCostUsd || 0;
       item.requestCount += 1;
+      buckets.get(name)?.push(record);
     }
 
     const result = Array.from(map.values()).sort((a, b) => b.totalTokens - a.totalTokens);
     for (const item of result) {
       item.percentage = Number(((item.totalTokens / totalAllTokens) * 100).toFixed(1));
+      Object.assign(item, speedWindow(buckets.get(item.name) ?? []));
     }
     return result;
   }
@@ -480,6 +480,10 @@ class UsageStore {
 
   public getByClient(range: UsageRange = '7d', options?: UsageQueryOptions): GroupedUsage[] {
     return this.groupRecords(this.selectRecords(range, options), (record) => record.client || 'unknown');
+  }
+
+  public getSpeed(range: UsageRange = '7d', options?: UsageQueryOptions): SpeedReport {
+    return summarizeSpeed(this.selectRecords(range, options));
   }
 
   public getRecentRecords(limit = 50, range: UsageRange = 'all', options?: UsageQueryOptions): TokenUsageRecord[] {

@@ -2,10 +2,15 @@ import fs from 'node:fs/promises';
 import fsSync from 'node:fs';
 import path from 'node:path';
 import { CONFIG } from '../config.js';
+import { proxyFetch as fetch } from '../network/proxy.js';
 import type { ProviderQuota, QuotaState, QuotaWindow } from './types.js';
-import { getLatestQuotaState } from './scanner.js';
-import { loadLocalClaudeIdentity } from '../identity/scan.js';
-import { upsertAccounts } from '../data/library.js';
+import { AgyUnavailableError, queryAgyQuota } from './agy.js';
+import { loadAccounts } from '../data/library.js';
+import { fetchClaudeAccountQuota } from '../identity/claude-account.js';
+import { ClaudeHttpError } from '../identity/claude-subscription.js';
+import { listCredentials, withToken } from '../identity/credentials.js';
+import type { CredentialProvider } from '../identity/credentials.js';
+import { OAuthLoginError } from '../identity/credentials.js';
 
 interface RawCodexResponse {
   user_id?: string;
@@ -37,9 +42,14 @@ interface RawGrokResponse {
   };
 }
 
+class HttpStatusError extends Error {
+  constructor(public readonly status: number, message: string) {
+    super(message);
+  }
+}
+
 let cachedQuotaState: QuotaState | null = null;
 let lastFetchTime = 0;
-const CACHE_TTL_MS = 60 * 1000; // 60s cache
 
 export async function fetchLiveCodexQuota(
   token: string,
@@ -60,34 +70,28 @@ export async function fetchLiveCodexQuota(
   });
 
   if (!res.ok) {
-    throw new Error(`Codex API responded with HTTP ${res.status}`);
+    throw new HttpStatusError(res.status, `Codex API responded with HTTP ${res.status}`);
   }
 
   const data = (await res.json()) as RawCodexResponse;
   const rateLimit = data.rate_limit;
   const windows: QuotaWindow[] = [];
 
-  if (rateLimit?.primary_window) {
-    const pw = rateLimit.primary_window;
-    const remaining = Math.max(0, 100 - pw.used_percent);
+  // Some plans only expose a weekly window as "primary", so name each window by its length, not its slot.
+  const pushWindow = (
+    raw: { used_percent: number; limit_window_seconds?: number; reset_at?: number },
+    fallbackMinutes: number
+  ) => {
+    const windowMinutes = raw.limit_window_seconds ? Math.round(raw.limit_window_seconds / 60) : fallbackMinutes;
     windows.push({
-      label: '5-Hour Limit',
-      remainingPercent: remaining,
-      resetAt: pw.reset_at ? pw.reset_at * 1000 : undefined,
-      windowMinutes: pw.limit_window_seconds ? Math.round(pw.limit_window_seconds / 60) : 300,
+      label: windowMinutes >= 5 * 24 * 60 ? 'Weekly Limit' : '5-Hour Limit',
+      remainingPercent: Math.max(0, 100 - raw.used_percent),
+      resetAt: raw.reset_at ? raw.reset_at * 1000 : undefined,
+      windowMinutes,
     });
-  }
-
-  if (rateLimit?.secondary_window) {
-    const sw = rateLimit.secondary_window;
-    const remaining = Math.max(0, 100 - sw.used_percent);
-    windows.push({
-      label: 'Weekly Limit',
-      remainingPercent: remaining,
-      resetAt: sw.reset_at ? sw.reset_at * 1000 : undefined,
-      windowMinutes: sw.limit_window_seconds ? Math.round(sw.limit_window_seconds / 60) : 10080,
-    });
-  }
+  };
+  if (rateLimit?.primary_window) pushWindow(rateLimit.primary_window, 300);
+  if (rateLimit?.secondary_window) pushWindow(rateLimit.secondary_window, 10080);
 
   const plan = data.plan_type === 'prolite' ? 'Pro Lite' : data.plan_type || 'Active';
 
@@ -102,7 +106,27 @@ export async function fetchLiveCodexQuota(
   };
 }
 
-export async function fetchLiveGrokQuota(token: string, label = 'xAI Grok'): Promise<ProviderQuota> {
+function httpStatusOf(err: unknown): number | undefined {
+  if (err instanceof HttpStatusError || err instanceof ClaudeHttpError) return err.status;
+  return undefined;
+}
+
+function failedQuota(provider: string, displayName: string, err: unknown, accountId?: string): ProviderQuota {
+  // A refresh the server rejected, or a 401 that survived a refresh, both mean the login itself is gone.
+  const expired = err instanceof OAuthLoginError || httpStatusOf(err) === 401;
+  const errorCode = expired ? 'login_expired' : httpStatusOf(err) === 429 ? 'rate_limited' : 'read_failed';
+  return {
+    provider,
+    displayName,
+    capturedAt: Date.now(),
+    status: 'error',
+    errorCode,
+    errorMessage: (err as Error).message,
+    accountId,
+  };
+}
+
+export async function fetchLiveGrokQuota(token: string, label = 'xAI Grok', accountId?: string): Promise<ProviderQuota> {
   const headers: Record<string, string> = {
     Authorization: `Bearer ${token}`,
     Accept: 'application/json',
@@ -114,7 +138,7 @@ export async function fetchLiveGrokQuota(token: string, label = 'xAI Grok'): Pro
   });
 
   if (!res.ok) {
-    throw new Error(`Grok API responded with HTTP ${res.status}`);
+    throw new HttpStatusError(res.status, `Grok API responded with HTTP ${res.status}`);
   }
 
   const data = (await res.json()) as RawGrokResponse;
@@ -133,6 +157,7 @@ export async function fetchLiveGrokQuota(token: string, label = 'xAI Grok'): Pro
     plan: 'SuperGrok',
     capturedAt: Date.now(),
     status: 'ok',
+    accountId,
     windows: [
       {
         label: 'Weekly Credit',
@@ -144,173 +169,155 @@ export async function fetchLiveGrokQuota(token: string, label = 'xAI Grok'): Pro
   };
 }
 
-export async function queryAllLiveQuotas(forceRefresh = false): Promise<QuotaState> {
-  const now = Date.now();
-  if (!forceRefresh && cachedQuotaState && now - lastFetchTime < CACHE_TTL_MS) {
-    return cachedQuotaState;
-  }
+const isHttp401 = (err: unknown) => err instanceof HttpStatusError && err.status === 401;
 
+/** How long a failed refresh may keep showing the previous good reading (marked stale). */
+const STALE_WINDOW_MS = 10 * 60 * 1000;
+/** agy takes several seconds; other accounts must not wait for it. */
+const AGY_WAIT_MS = 2000;
+
+const lastGood = new Map<string, { at: number; quota: ProviderQuota }>();
+
+/** Stores a reading, or, for a failure, the last good reading marked stale when that is still fresh enough. */
+function settle(providers: Record<string, ProviderQuota>, key: string, quota: ProviderQuota): void {
+  if (quota.status === 'ok') {
+    lastGood.set(key, { at: Date.now(), quota });
+    providers[key] = quota;
+    return;
+  }
+  if (quota.errorCode === 'login_expired') {
+    // Expired credentials clear the snapshot at once: showing numbers for a dead login would mislead.
+    lastGood.delete(key);
+    providers[key] = quota;
+    return;
+  }
+  const previous = lastGood.get(key);
+  if (quota.status === 'error' && previous && Date.now() - previous.at <= STALE_WINDOW_MS) {
+    providers[key] = {
+      ...previous.quota,
+      status: 'warning',
+      stale: true,
+      errorCode: quota.errorCode,
+      errorMessage: quota.errorMessage,
+    };
+    return;
+  }
+  providers[key] = quota;
+}
+
+let inflightQuery: Promise<QuotaState> | null = null;
+
+export function quotaAgeMs(): number {
+  return cachedQuotaState ? Date.now() - lastFetchTime : Infinity;
+}
+
+/**
+ * Without `forceRefresh` this returns what the last poll produced; the poll interval (a setting) decides
+ * how fresh that is. Only the very first call, with nothing cached, reads providers.
+ */
+export function queryAllLiveQuotas(forceRefresh = false): Promise<QuotaState> {
+  if (!forceRefresh && cachedQuotaState) return Promise.resolve(cachedQuotaState);
+  if (inflightQuery) return inflightQuery;
+  inflightQuery = readAllProviders(forceRefresh).finally(() => {
+    inflightQuery = null;
+  });
+  return inflightQuery;
+}
+
+async function readAllProviders(forceRefresh: boolean): Promise<QuotaState> {
   const providers: Record<string, ProviderQuota> = {};
   const tasks: Promise<void>[] = [];
-  const seenAccountIds = new Set<string>();
+  const seen: Record<CredentialProvider, Set<string>> = { gpt: new Set(), claude: new Set(), grok: new Set() };
 
-  // Load account identities mapping if exists
-  const notesMap: Record<string, { note?: string; email?: string; plan?: string }> = {};
-  try {
-    const identPath = path.join(CONFIG.paths.piQuotaMonitor, 'account-identities.json');
-    if (fsSync.existsSync(identPath)) {
-      const idData = JSON.parse(await fs.readFile(identPath, 'utf8'));
-      if (Array.isArray(idData.accounts)) {
-        for (const acc of idData.accounts) {
-          if (acc.accountId) {
-            notesMap[acc.accountId] = { note: acc.note, email: acc.email, plan: acc.plan };
-          }
-        }
-      }
-    }
-  } catch {}
-
-  // 1. Check ~/.codex/auth.json for Codex Primary OAuth
-  try {
-    const codexAuthPath = CONFIG.paths.codexAuth;
-    if (fsSync.existsSync(codexAuthPath)) {
-      const content = await fs.readFile(codexAuthPath, 'utf8');
-      const auth = JSON.parse(content);
-      const token = auth.tokens?.access_token;
-      const accountId = auth.tokens?.account_id as string | undefined;
-
-      if (token) {
-        if (accountId) seenAccountIds.add(accountId);
-        const note = accountId && notesMap[accountId]?.note ? notesMap[accountId].note : 'Primary';
-        tasks.push(
-          fetchLiveCodexQuota(token, accountId, `Codex [${note}]`)
-            .then((quota) => {
-              providers['codex_primary'] = quota;
-            })
-            .catch((err) => {
-              console.warn('[Quota] Codex live query failed:', err.message);
-            })
-        );
-      }
-    }
-  } catch (err) {
-    console.warn('[Quota] Failed to read Codex auth:', err);
-  }
-
-  // 2. Check ~/.pi/agent/pi-quota-monitor/accounts/ for any other Codex accounts (e.g. obr.json, lyy.json)
-  try {
-    const accountsDir = path.join(CONFIG.paths.piQuotaMonitor, 'accounts');
-    if (fsSync.existsSync(accountsDir)) {
-      const files = await fs.readdir(accountsDir);
-      for (const file of files) {
-        if (!file.endsWith('.json') || file === 'current.json') continue;
-        try {
-          const accContent = await fs.readFile(path.join(accountsDir, file), 'utf8');
-          const accJson = JSON.parse(accContent);
-          if (accJson.type === 'oauth' && accJson.access && accJson.accountId) {
-            const accId = accJson.accountId as string;
-            if (seenAccountIds.has(accId)) continue;
-            seenAccountIds.add(accId);
-            const note = notesMap[accId]?.note || path.basename(file, '.json');
-            const key = `codex_${path.basename(file, '.json')}`;
-            tasks.push(
-              fetchLiveCodexQuota(accJson.access, accId, `Codex [${note}]`)
-                .then((quota) => {
-                  providers[key] = quota;
-                })
-                .catch(() => {
-                  // Expired or unauthorized extra accounts can be ignored.
-                })
-            );
-          }
-        } catch {}
-      }
-    }
-  } catch {}
-
-  // 3. Check ~/.pi/agent/auth.json for Grok OAuth
-  try {
-    const piAuthPath = path.join(CONFIG.paths.piAgent, 'auth.json');
-    if (fsSync.existsSync(piAuthPath)) {
-      const content = await fs.readFile(piAuthPath, 'utf8');
-      const auth = JSON.parse(content);
-
-      if (auth.xai?.access) {
-        tasks.push(
-          fetchLiveGrokQuota(auth.xai.access, 'xAI Grok [小狗蛇]')
-            .then((quota) => {
-              providers['grok'] = quota;
-            })
-            .catch((err) => {
-              console.warn('[Quota] Grok live query failed:', err.message);
-            })
-        );
-      }
-    }
-  } catch (err) {
-    console.warn('[Quota] Failed to read Pi auth:', err);
-  }
-
-  // 4. Antigravity Quota
-  try {
-    const agyFile = path.join(CONFIG.paths.piQuotaReadings, 'antigravity-shared', 'latest.json');
-    if (fsSync.existsSync(agyFile)) {
-      const content = await fs.readFile(agyFile, 'utf8');
-      const raw = JSON.parse(content);
-      providers['antigravity'] = {
-        provider: 'antigravity',
-        displayName: 'Google Antigravity',
-        plan: raw.tier || 'Claude 3.7 / Gemini 2.5',
-        capturedAt: raw.capturedAt || Date.now(),
-        status: 'ok',
-        groups: raw.groups || [],
-      };
-    }
-  } catch {}
-
-  // Await all live queries
-  await Promise.allSettled(tasks);
-
-  try {
-    const claude = await loadLocalClaudeIdentity();
-    if (claude?.subscription) {
-      upsertAccounts([claude]);
-      providers.claude = {
-        provider: 'claude',
-        displayName: claude.email ? `Claude (${claude.email})` : 'Claude',
-        plan: claude.subscription.plan || '订阅',
-        capturedAt: claude.subscription.capturedAt,
-        status: 'ok',
-        windows: claude.subscription.windows,
-        accountId: claude.userId,
-      };
-    }
-  } catch {
-    // Missing local Claude credentials should not fail the other quota reads.
-  }
-
-  try {
-    const fallback = await getLatestQuotaState();
-    for (const [key, quota] of Object.entries(fallback.providers)) {
-      const alreadyPresent = Object.values(providers).some((item) => {
-        return item.provider === quota.provider || item.displayName === quota.displayName;
-      });
-      if (!alreadyPresent && quota.status === 'ok') {
-        providers[key] = {
-          ...quota,
-          displayName: quota.displayName.includes('(Cached)') ? quota.displayName : `${quota.displayName} (Cached)`,
-        };
-      }
-    }
-  } catch {}
-
-  const result: QuotaState = {
-    updatedAt: Date.now(),
-    providers,
+  const library = loadAccounts();
+  /** `Codex` or `Codex [备注名]`: the bracket only appears when the account has a name of its own. */
+  const titleFor = (type: 'gpt' | 'claude' | 'grok', accountId: string, base: string): string => {
+    const saved = library.find((account) => account.type === type && account.userId === accountId);
+    return saved?.label ? `${base} [${saved.label}]` : base;
   };
 
+  const track = (key: string, provider: string, label: string, accountId: string, run: () => Promise<ProviderQuota>) => {
+    tasks.push(
+      run()
+        .then((quota) => settle(providers, key, quota))
+        .catch((err: Error) => {
+          console.warn(`[Quota] ${label} live query failed:`, err.message);
+          settle(providers, key, failedQuota(provider, label, err, accountId));
+        })
+    );
+  };
+
+  // 1. Accounts logged in through this console: their own OAuth grant, refreshed here. Nothing else is read for them.
+  for (const credential of listCredentials('gpt')) {
+    const id = credential.accountId;
+    seen.gpt.add(id);
+    const label = titleFor('gpt', id, 'Codex');
+    track(`codex_${id}`, 'codex', label, id, () => withToken('gpt', credential, (token) => fetchLiveCodexQuota(token, id, label), isHttp401));
+  }
+  for (const credential of listCredentials('claude')) {
+    const id = credential.accountId;
+    seen.claude.add(id);
+    const label = titleFor('claude', id, 'Claude');
+    track(`claude_${id}`, 'claude', label, id, () => fetchClaudeAccountQuota(credential, label));
+  }
+  for (const credential of listCredentials('grok')) {
+    const id = credential.accountId;
+    seen.grok.add(id);
+    const label = titleFor('grok', id, 'xAI Grok');
+    track(`grok_${id}`, 'grok', label, id, () => withToken('grok', credential, (token) => fetchLiveGrokQuota(token, label, id), isHttp401));
+  }
+
+  // 2. Antigravity: asks the local agy CLI (its own login), so it needs no OAuth login of ours.
+  // It may take longer than the rest; whatever it returns later is written into this same map.
+  if (library.some((account) => account.type === 'agy')) {
+    const agy = queryAgyQuota(forceRefresh)
+      .then((quota) => settle(providers, 'antigravity', quota))
+      .catch((err: Error) => {
+        console.warn('[Quota] agy usage failed:', err.message);
+        settle(providers, 'antigravity', {
+          provider: 'antigravity',
+          displayName: 'Google Antigravity',
+          capturedAt: Date.now(),
+          status: 'error',
+          errorCode: err instanceof AgyUnavailableError ? 'agy_unavailable' : 'read_failed',
+          errorMessage: err.message,
+          accountId: 'agy-local',
+        });
+      });
+    tasks.push(Promise.race([agy, new Promise<void>((resolve) => setTimeout(resolve, AGY_WAIT_MS))]));
+  }
+
+  await Promise.allSettled(tasks);
+
+  if (library.some((account) => account.type === 'agy') && !providers['antigravity']) {
+    const previous = lastGood.get('antigravity');
+    providers['antigravity'] = previous && Date.now() - previous.at <= STALE_WINDOW_MS
+      ? { ...previous.quota, stale: true }
+      : { provider: 'antigravity', displayName: 'Google Antigravity', capturedAt: Date.now(), status: 'loading', accountId: 'agy-local' };
+  }
+
+  // 3. Subscription accounts need a console login by default; without one, say what to do instead of hiding them.
+  const SETUP: Array<{ type: 'gpt' | 'claude' | 'grok'; provider: string; name: string; prefix: string; vendor: string }> = [
+    { type: 'gpt', provider: 'codex', name: 'Codex', prefix: 'codex_', vendor: 'OpenAI' },
+    { type: 'claude', provider: 'claude', name: 'Claude', prefix: 'claude_', vendor: 'Claude' },
+    { type: 'grok', provider: 'grok', name: 'xAI Grok', prefix: 'grok_', vendor: 'Grok' },
+  ];
+  for (const account of library) {
+    const setup = SETUP.find((item) => item.type === account.type);
+    if (!setup || seen[setup.type].has(account.userId)) continue;
+    providers[`${setup.prefix}${account.userId}`] = {
+      provider: setup.provider,
+      displayName: titleFor(setup.type, account.userId, setup.name),
+      capturedAt: Date.now(),
+      status: 'unconfigured',
+      errorCode: 'login_required',
+      errorMessage: `This ${setup.vendor} account is not signed in to this console yet. Use "Add account" to authenticate once.`,
+      accountId: account.userId,
+    };
+  }
+
+  const result: QuotaState = { updatedAt: Date.now(), providers };
   cachedQuotaState = result;
   lastFetchTime = Date.now();
-
   return result;
 }

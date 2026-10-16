@@ -1,51 +1,38 @@
 import React, { useEffect, useMemo, useState } from 'react';
-import type { AccountType, ConsoleAccount, ConsoleSettings, PathSettings, QuotaState } from '../types';
+import type { AccountType, ConsoleSettings, PathSettings, QuotaState, ScanSourceStatus } from '../types';
 import { calibrateData, deleteAccount, saveSettings } from '../api';
 import { ACCOUNT_TYPE_LABEL } from '../lib/providers';
-import { AddAccountDialog } from './AddAccountDialog';
+import type { Lang } from '../i18n';
+import { useI18n } from '../i18n';
+import { BatteryThresholdSlider } from './BatteryThresholdSlider';
+import { RefreshIntervalSetting } from './RefreshIntervalSetting';
+import { ProxySetting } from './ProxySetting';
+import { HelpTip } from './HelpTip';
+import { Icon } from './Icon';
 
 interface SettingsPageProps {
   open: boolean;
   onToggle: () => void;
   settings: ConsoleSettings | null;
   onSaved: (settings: ConsoleSettings, quota?: QuotaState | null) => void;
+  onAddAccount: (type?: AccountType) => void;
 }
 
-const ACCOUNT_TYPES = Object.keys(ACCOUNT_TYPE_LABEL) as AccountType[];
-
-const PATH_FIELDS: Array<{ key: keyof PathSettings; label: string; hint: string }> = [
-  {
-    key: 'codexDir',
-    label: 'Codex 目录',
-    hint: '读取 sessions/ 会话用量，以及 auth.json 里的额度凭据。',
-  },
-  {
-    key: 'piAgentDir',
-    label: 'Pi Agent 目录',
-    hint: '读取 sessions/ 会话和额度缓存。不再读取 Pi 用量账本，避免和会话重复计数。',
-  },
-  {
-    key: 'claudeProjectsDir',
-    label: 'Claude 对话目录',
-    hint: '扫描 Claude Code 的 projects JSONL，包含子代理和 Workflow 会话。填写 ~/.claude 时会自动使用其中的 projects。',
-  },
-  {
-    key: 'grokSessionsDir',
-    label: 'Grok 会话目录',
-    hint: '读取 Grok Build 的 updates.jsonl。',
-  },
-];
+const PATH_KEYS: Array<keyof PathSettings> = ['codexDir', 'piAgentDir', 'claudeProjectsDir', 'grokSessionsDir'];
+const LANGS: Lang[] = ['zh', 'en'];
+/** Types that read quota through a login held by this console. */
+const LOGIN_TYPES = new Set<AccountType>(['gpt', 'claude', 'grok']);
 
 function samePaths(a: PathSettings, b: PathSettings): boolean {
-  return PATH_FIELDS.every(({ key }) => a[key].trim() === b[key].trim());
+  return PATH_KEYS.every((key) => a[key].trim() === b[key].trim());
 }
 
-export const SettingsPage: React.FC<SettingsPageProps> = ({ open, onToggle, settings, onSaved }) => {
+export const SettingsPage: React.FC<SettingsPageProps> = ({ open, onToggle, settings, onSaved, onAddAccount }) => {
+  const { t, lang, setLang, locale } = useI18n();
   const [draft, setDraft] = useState<PathSettings | null>(settings?.paths ?? null);
   const [savingPaths, setSavingPaths] = useState(false);
   const [savingHide, setSavingHide] = useState(false);
-  const [savingAccounts, setSavingAccounts] = useState(false);
-  const [addOpen, setAddOpen] = useState(false);
+  const [calibrating, setCalibrating] = useState(false);
   const [dataDir, setDataDir] = useState('');
   const [message, setMessage] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -59,245 +46,304 @@ export const SettingsPage: React.FC<SettingsPageProps> = ({ open, onToggle, sett
 
   const dirty = useMemo(() => {
     if (!settings || !draft) return false;
-    return !samePaths(draft, settings.paths);
-  }, [draft, settings]);
+    return !samePaths(draft, settings.paths) || dataDir.trim() !== (settings.dataDir || '').trim();
+  }, [draft, dataDir, settings]);
 
-  const updatePath = (key: keyof PathSettings, value: string) => {
-    setDraft((current) => (current ? { ...current, [key]: value } : current));
-    setMessage(null);
+  const run = async (task: () => Promise<void>) => {
     setError(null);
+    setMessage(null);
+    try {
+      await task();
+    } catch (err) {
+      setError((err as Error).message);
+    }
   };
 
-  const saveHide = async (hideAgyClaude: boolean) => {
+  const saveHide = (hideAgyClaude: boolean) => run(async () => {
     setSavingHide(true);
-    setError(null);
     try {
       const result = await saveSettings({ hideAgyClaude });
       onSaved(result.settings, result.quota);
-      setMessage(hideAgyClaude ? '已隐藏 Antigravity 的 Claude 额度分组' : '已显示 Antigravity 的 Claude 额度分组');
-    } catch (err) {
-      setError((err as Error).message);
     } finally {
       setSavingHide(false);
     }
+  });
+
+  /** Display preferences save as soon as they change; a failure is shown and the control snaps back. */
+  const saveDisplay = async (patch: Parameters<typeof saveSettings>[0]) => {
+    setError(null);
+    const result = await saveSettings(patch);
+    onSaved(result.settings, result.quota);
   };
 
-  const savePaths = async () => {
+  const savePaths = () => run(async () => {
     if (!draft) return;
     setSavingPaths(true);
-    setError(null);
-    setMessage(null);
     try {
       const result = await saveSettings({ paths: draft, dataDir, rescan: true });
       onSaved(result.settings, result.quota);
-      setMessage('路径已保存，并重新扫描了本地用量');
-    } catch (err) {
-      setError((err as Error).message);
+      setMessage(t('settings.pathsSaved'));
     } finally {
       setSavingPaths(false);
     }
+  });
+
+  const calibrate = () => run(async () => {
+    setCalibrating(true);
+    try {
+      const result = await calibrateData();
+      onSaved(result.settings);
+      setMessage(t('settings.rescanned', { n: result.count.toLocaleString(locale) }));
+    } finally {
+      setCalibrating(false);
+    }
+  });
+
+  const sourceNote = (source: ScanSourceStatus): string | undefined => {
+    if (!source.noteCodes?.length) return source.note;
+    return source.noteCodes.map((code) => {
+      const [name, n] = code.split(':');
+      return t(`scan.note.${name}`, { n: n ?? '' });
+    }).join(lang === 'zh' ? '；' : '; ');
   };
 
   const hideAgyClaude = settings?.hideAgyClaude ?? true;
   const accounts = settings?.accounts ?? [];
 
   return (
-    <section className="section settings-section" aria-labelledby="settings-title">
+    <section className="section" data-module="settings" aria-labelledby="settings-title">
       <div className="section-heading">
-        <h2 id="settings-title">
+        <div className="title-row">
           <button
             type="button"
-            className="settings-heading-btn"
+            className="settings-toggle"
             aria-expanded={open}
             aria-controls="settings-panel"
             onClick={onToggle}
           >
-            设置
-            <span>{open ? '隐藏' : '开启'}</span>
+            <Icon name="chevron" size={16} />
+            <h2 id="settings-title">{t('settings.title')}</h2>
           </button>
-        </h2>
-        <details className="info-help">
-          <summary aria-label="设置说明">?</summary>
-          <div className="help-content">
-            <strong>显示与扫描路径</strong>
-            <p>点击标题或顶栏「设置」可展开或收起。未添加的账户不会出现在额度区。</p>
-          </div>
-        </details>
+          <HelpTip text={t('settings.collapsedHint')} />
+        </div>
       </div>
 
-      {open && (!settings || !draft ? (
-        <div className="panel loading-panel">
-          <p className="hint">正在读取设置…</p>
-        </div>
-      ) : (
-        <div id="settings-panel" className="settings-grid">
-          <section className="panel settings-card" aria-labelledby="account-settings-title">
-            <div className="title-row">
-              <h3 id="account-settings-title">账户</h3>
-              <details className="info-help">
-                <summary aria-label="账户说明">?</summary>
-                <div className="help-content">
-                  <strong>按类型添加</strong>
-                  <p>选择 GPT、Claude、Grok 或 AGY 后添加。只有已添加的账户会显示额度卡，未添加的类型不占位。</p>
+      {open && (
+        <>
+          {message && <div className="callout" data-tone="good" role="status" style={{ marginBottom: 14 }}><Icon name="check" size={15} /><span>{message}</span></div>}
+          {error && <div className="callout" data-tone="danger" role="alert" style={{ marginBottom: 14 }}><Icon name="alert" size={15} /><span>{error}</span></div>}
+          {!settings || !draft ? (
+            <div className="panel empty">{t('settings.loading')}</div>
+          ) : (
+            <div id="settings-panel" className="settings-grid">
+              <section className="panel settings-card" aria-labelledby="account-settings-title">
+                <div className="panel-head">
+                  <div className="title-row">
+                    <h3 id="account-settings-title">{t('settings.accounts')}</h3>
+                    <HelpTip text={t('settings.accountsHint')} />
+                  </div>
+                  <div className="row-wrap">
+                    <button type="button" className="btn btn-sm" onClick={calibrate} disabled={calibrating}>
+                      {calibrating ? t('settings.scanning') : t('settings.rescan')}
+                    </button>
+                    <button type="button" className="btn btn-sm btn-primary" onClick={() => onAddAccount()}>
+                      <Icon name="plus" size={13} />{t('settings.add')}
+                    </button>
+                  </div>
                 </div>
-              </details>
-            </div>
-            <ul className="account-list">
-              {accounts.map((account) => (
-                <li key={account.id}>
-                  <div>
-                    <strong>{account.label || ACCOUNT_TYPE_LABEL[account.type]}</strong>
-                    <span>{ACCOUNT_TYPE_LABEL[account.type]} · {account.userId || '未识别 ID'}</span>
-                    {account.notes && <p className="hint">{account.notes}</p>}
+                <div className="panel-body">
+                  <div className="block-grid">
+                    {accounts.map((account) => {
+                      const needsLogin = LOGIN_TYPES.has(account.type);
+                      return (
+                        <article key={account.id} className="block account-block">
+                          <div className="account-top">
+                            <span className="chip">{ACCOUNT_TYPE_LABEL[account.type]}</span>
+                            {needsLogin && (
+                              <span className="badge" data-tone={account.ownLogin ? 'good' : 'muted'}>
+                                {account.ownLogin ? t('settings.ownLogin') : t('settings.needLogin')}
+                              </span>
+                            )}
+                          </div>
+                          <div className="account-name">
+                            <strong title={account.label || account.email}>{account.label || account.email || ACCOUNT_TYPE_LABEL[account.type]}</strong>
+                            <p className="hint" title={account.userId}>
+                              {account.email && account.label ? `${account.email} · ` : ''}{account.userId || t('settings.unknownId')}
+                            </p>
+                          </div>
+                          <div className="account-actions">
+                            {needsLogin && (
+                              <button type="button" className="btn btn-sm" onClick={() => onAddAccount(account.type)}>
+                                {account.ownLogin ? t('settings.relogin') : t('settings.login')}
+                              </button>
+                            )}
+                            <button
+                              type="button"
+                              className="btn btn-sm btn-ghost btn-danger"
+                              onClick={() => run(async () => onSaved((await deleteAccount(account.id)).settings))}
+                            >
+                              {t('settings.remove')}
+                            </button>
+                          </div>
+                        </article>
+                      );
+                    })}
+                    {accounts.length === 0 && <p className="hint block-empty">{t('settings.noAccounts')}</p>}
                   </div>
-                  <button type="button" onClick={() => deleteAccount(account.id).then((result) => onSaved(result.settings)).catch((err) => setError((err as Error).message))}>
-                    移除
-                  </button>
-                </li>
-              ))}
-              {accounts.length === 0 && <li className="hint">打开控制台时会自动识别本机已登录账户。也可以手动添加。</li>}
-            </ul>
-            <div className="account-add">
-              <button type="button" className="button-primary" onClick={() => setAddOpen(true)}>添加账户</button>
-              <button
-                type="button"
-                disabled={savingAccounts}
-                onClick={async () => {
-                  setSavingAccounts(true);
-                  setError(null);
-                  try {
-                    const result = await calibrateData();
-                    onSaved(result.settings);
-                    setMessage(`已重新扫描校准，共 ${result.count.toLocaleString()} 条用量`);
-                  } catch (err) {
-                    setError((err as Error).message);
-                  } finally {
-                    setSavingAccounts(false);
-                  }
-                }}
-              >
-                {savingAccounts ? '正在校准…' : '重新扫描校准'}
-              </button>
-            </div>
-          </section>
+                </div>
+              </section>
 
-          <section className="panel settings-card" aria-labelledby="display-settings-title">
-            <div className="title-row">
-              <h3 id="display-settings-title">显示</h3>
-            </div>
-            <div className="settings-row">
-              <div>
-                <strong>隐藏 AGY Claude 额度</strong>
-                <p className="hint">只隐藏 Antigravity 额度卡中的 Claude 分组，不改变用量统计与显示。</p>
-              </div>
-              <button
-                type="button"
-                className={`settings-switch${hideAgyClaude ? ' active' : ''}`}
-                aria-pressed={hideAgyClaude}
-                disabled={savingHide}
-                onClick={() => saveHide(!hideAgyClaude)}
-              >
-                <i />
-                {hideAgyClaude ? '已隐藏' : '显示中'}
-              </button>
-            </div>
-          </section>
-
-          <section className="panel settings-card" aria-labelledby="path-settings-title">
-            <div className="settings-card-head">
-              <div className="title-row">
-                <h3 id="path-settings-title">扫描路径</h3>
-                <details className="info-help">
-                  <summary aria-label="路径说明">?</summary>
-                  <div className="help-content">
-                    <strong>本地路径</strong>
-                    <p>留空或与默认值相同会恢复默认目录。支持 ~ 开头。保存后会按新路径重新扫描用量和额度缓存。</p>
-                  </div>
-                </details>
-              </div>
-              <button type="button" className="button-primary" onClick={savePaths} disabled={savingPaths || !dirty}>
-                {savingPaths ? '正在扫描…' : '保存并重新扫描'}
-              </button>
-            </div>
-
-            <label className="path-field">
-              <span className="path-label">数据目录</span>
-              <span className="path-control">
-                <input className="settings-input" value={dataDir} spellCheck={false} onChange={(event) => setDataDir(event.target.value)} />
-              </span>
-              <span className="hint">账户卡片和用量账本写在这里。只保存用户 ID 与用量，不保存 OAuth 令牌。</span>
-            </label>
-            <div className="path-list">
-              {PATH_FIELDS.map((field) => {
-                const effective = settings.resolved[field.key];
-                const ready = settings.availability[field.key];
-                const customized = draft[field.key].trim() !== settings.defaults[field.key];
-                return (
-                  <label key={field.key} className="path-field">
-                    <span className="path-label">
-                      {field.label}
-                      <em data-ready={ready ? 'true' : 'false'}>{ready ? '目录存在' : '未找到目录'}</em>
-                    </span>
-                    <span className="path-control">
-                      <input
-                        className="settings-input"
-                        value={draft[field.key]}
-                        spellCheck={false}
-                        onChange={(event) => updatePath(field.key, event.target.value)}
+              <section className="panel settings-card" aria-labelledby="display-settings-title">
+                <div className="panel-head">
+                  <h3 id="display-settings-title">{t('settings.display')}</h3>
+                </div>
+                <div className="panel-body">
+                  <div className="block-grid">
+                    <div className="block">
+                      <span className="field-label">
+                        <span className="label-row">{t('settings.language')}<HelpTip text={t('settings.languageHint')} /></span>
+                      </span>
+                      <div className="segmented" role="group" aria-label={t('settings.language')}>
+                        {LANGS.map((item) => (
+                          <button key={item} type="button" aria-pressed={lang === item} onClick={() => setLang(item)}>
+                            {t(`settings.lang.${item}`)}
+                          </button>
+                        ))}
+                      </div>
+                    </div>
+                    <div className="block">
+                      <span className="field-label">
+                        <span className="label-row">{t('settings.refresh.title')}<HelpTip text={t('settings.refresh.hint')} /></span>
+                      </span>
+                      <RefreshIntervalSetting
+                        seconds={settings.quotaRefreshIntervalSeconds}
+                        onSave={(seconds) => saveDisplay({ quotaRefreshIntervalSeconds: seconds })}
                       />
+                    </div>
+                    <div className="block">
+                      <span className="field-label">
+                        <span className="label-row">{t('settings.hideAgy')}<HelpTip text={t('settings.hideAgyHint')} /></span>
+                      </span>
                       <button
                         type="button"
-                        onClick={() => updatePath(field.key, settings.defaults[field.key])}
-                        disabled={!customized && draft[field.key] === settings.defaults[field.key]}
-                      >
-                        恢复默认
-                      </button>
-                    </span>
-                    <span className="hint">{field.hint}</span>
-                    {effective !== draft[field.key].trim() && (
-                      <span className="hint">生效路径：{effective}</span>
-                    )}
-                  </label>
-                );
-              })}
-            </div>
-          </section>
-
-          <section className="panel settings-card" aria-labelledby="scan-settings-title">
-            <div className="title-row">
-              <h3 id="scan-settings-title">最近扫描</h3>
-              <details className="info-help">
-                <summary aria-label="扫描说明">?</summary>
-                <div className="help-content">
-                  <strong>Claude 对话</strong>
-                  <p>读取本地 Claude Code 对话 JSONL。同一条消息的流式快照会按 message id 去重，避免重复计入用量。</p>
-                </div>
-              </details>
-            </div>
-            <p className="hint scan-summary">
-              共 {settings.scan.recordCount.toLocaleString()} 条记录
-              {settings.scan.lastSyncTime ? ` · 更新于 ${new Date(settings.scan.lastSyncTime).toLocaleString()}` : ''}
-            </p>
-            <ul className="scan-list">
-              {settings.scan.sources.map((source) => (
-                <li key={source.id}>
-                  <div>
-                    <strong>{source.label}</strong>
-                    <span>{source.exists ? `${source.filesScanned} 个文件 · ${source.records.toLocaleString()} 条` : '目录不存在'}</span>
+                        className="switch"
+                        role="switch"
+                        aria-checked={hideAgyClaude}
+                        aria-label={t('settings.hideAgy')}
+                        disabled={savingHide}
+                        onClick={() => saveHide(!hideAgyClaude)}
+                      />
+                    </div>
+                    <div className="block span-all">
+                      <span className="field-label">
+                        <span className="label-row">{t('settings.battery.title')}<HelpTip text={t('settings.battery.hint')} /></span>
+                        <button
+                          type="button"
+                          className="btn btn-sm"
+                          disabled={settings.quotaBatteryWarning === 50 && settings.quotaBatteryLow === 10}
+                          onClick={() => run(() => saveDisplay({ quotaBatteryWarning: 50, quotaBatteryLow: 10 }))}
+                        >
+                          {t('settings.battery.reset')}
+                        </button>
+                      </span>
+                      <BatteryThresholdSlider
+                        value={{ warning: settings.quotaBatteryWarning, low: settings.quotaBatteryLow }}
+                        onCommit={(next) => run(() => saveDisplay({ quotaBatteryWarning: next.warning, quotaBatteryLow: next.low }))}
+                      />
+                    </div>
                   </div>
-                  <code>{source.path}</code>
-                  {source.note && <p className="hint">{source.note}</p>}
-                </li>
-              ))}
-              {settings.scan.sources.length === 0 && <li className="hint">尚未完成扫描</li>}
-            </ul>
-          </section>
-        </div>
-      ))}
+                </div>
+              </section>
 
-      {open && message && <p className="settings-note" role="status">{message}</p>}
-      {open && error && <aside className="notice" role="alert">{error}</aside>}
-      <AddAccountDialog open={addOpen} onClose={() => setAddOpen(false)} onAdded={(next) => onSaved(next)} />
+              <ProxySetting port={settings.proxyPort ?? null} onSave={(proxyPort) => saveDisplay({ proxyPort })} />
+
+              <section className="panel settings-card" aria-labelledby="path-settings-title">
+                <div className="panel-head">
+                  <div className="title-row">
+                    <h3 id="path-settings-title">{t('settings.paths')}</h3>
+                    <HelpTip text={t('settings.pathsHint')} />
+                  </div>
+                  <button type="button" className="btn btn-sm btn-primary" onClick={savePaths} disabled={savingPaths || !dirty}>
+                    {savingPaths ? t('settings.saving') : t('settings.saveRescan')}
+                  </button>
+                </div>
+                <div className="panel-body">
+                  <div className="block-grid wide">
+                    <label className="block span-all field">
+                      <span className="field-label">
+                        <span className="label-row">{t('settings.dataDir')}<HelpTip text={t('settings.dataDirHint')} /></span>
+                      </span>
+                      <input className="input mono" value={dataDir} spellCheck={false} onChange={(event) => setDataDir(event.target.value)} />
+                    </label>
+                    {PATH_KEYS.map((key) => {
+                      const ready = settings.availability[key];
+                      const effective = key === 'claudeProjectsDir' && settings.claudeProjectsAll?.length
+                        ? settings.claudeProjectsAll.join(lang === 'zh' ? '，' : ', ')
+                        : settings.resolved[key];
+                      return (
+                        <label key={key} className="block field">
+                          <span className="field-label">
+                            <span className="label-row">{t(`path.${key}`)}<HelpTip text={t(`path.${key}Hint`)} /></span>
+                            <span className="ready" data-ready={ready ? 'true' : 'false'}>{ready ? t('settings.found') : t('settings.notFound')}</span>
+                          </span>
+                          <input
+                            className="input mono"
+                            value={draft[key]}
+                            spellCheck={false}
+                            onChange={(event) => setDraft({ ...draft, [key]: event.target.value })}
+                          />
+                          {draft[key] !== settings.defaults[key] && (
+                            <button
+                              type="button"
+                              className="btn btn-sm btn-ghost block-reset"
+                              onClick={() => setDraft({ ...draft, [key]: settings.defaults[key] })}
+                            >
+                              {t('settings.restoreDefault')}
+                            </button>
+                          )}
+                          {effective !== draft[key].trim() && <span className="hint">{t('settings.actualScan')}<code>{effective}</code></span>}
+                        </label>
+                      );
+                    })}
+                  </div>
+                </div>
+              </section>
+
+              <section className="panel settings-card" aria-labelledby="scan-settings-title">
+                <div className="panel-head">
+                  <div>
+                    <h3 id="scan-settings-title">{t('settings.scan')}</h3>
+                    <p className="hint">
+                      {t('settings.scanCount', { n: settings.scan.recordCount.toLocaleString(locale) })}
+                      {settings.scan.lastSyncTime ? ` · ${new Date(settings.scan.lastSyncTime).toLocaleString(locale)}` : ''}
+                    </p>
+                  </div>
+                </div>
+                <div className="panel-body">
+                  <div className="block-grid">
+                    {settings.scan.sources.map((source) => {
+                      const note = sourceNote(source);
+                      return (
+                        <article key={source.id} className="block scan-block">
+                          <strong>{t(`scan.src.${source.id}`) === `scan.src.${source.id}` ? source.label : t(`scan.src.${source.id}`)}</strong>
+                          <span className="scan-count">
+                            {source.exists
+                              ? t('settings.scanFiles', { files: source.filesScanned, records: source.records.toLocaleString(locale) })
+                              : t('settings.dirMissing')}
+                          </span>
+                          <code title={source.path}>{source.path}</code>
+                          {note && <span className="hint">{note}</span>}
+                        </article>
+                      );
+                    })}
+                    {settings.scan.sources.length === 0 && <p className="hint block-empty">{t('settings.scanNone')}</p>}
+                  </div>
+                </div>
+              </section>
+            </div>
+          )}
+        </>
+      )}
     </section>
   );
 };

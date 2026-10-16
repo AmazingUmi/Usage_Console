@@ -5,9 +5,14 @@ import { OverviewDashboard } from './components/OverviewDashboard';
 import { UsageDetailSection } from './components/UsageDetailSection';
 import { SettingsPage } from './components/SettingsPage';
 import { EditAccountDialog } from './components/EditAccountDialog';
-import { fetchQuota, refreshQuota, fetchUsageOverview, fetchSettings, syncUsage, trendDaysFor } from './api';
+import { AddAccountDialog } from './components/AddAccountDialog';
+import { useI18n } from './i18n';
+import { fetchQuota, refreshQuota, fetchUsageOverview, fetchSettings, reorderAccounts, syncUsage, trendDaysFor } from './api';
 import { quotaCardsForAccounts } from './lib/providers';
+import { HelpTip } from './components/HelpTip';
+import { Icon } from './components/Icon';
 import type {
+  AccountType,
   ConsoleSettings,
   QuotaState,
   UsageSummary,
@@ -16,13 +21,30 @@ import type {
   TokenUsageRecord,
   UsageRange,
   ConnectionState,
+  SpeedReport,
 } from './types';
+
+const RANGES: Array<{ id: UsageRange; key: string }> = [
+  { id: 'today', key: 'range.today' },
+  { id: '7d', key: 'range.7d' },
+  { id: '30d', key: 'range.30d' },
+  { id: 'all', key: 'range.all' },
+];
+
+/**
+ * The server polls providers on the "refresh interval" setting; this only re-reads what the server already has,
+ * which is cheap, so it can run more often than that interval.
+ */
+const CACHE_POLL_MS = 15 * 1000;
+/** While a card is still "loading", ask again soon instead of waiting for the next cache poll. */
+const LOADING_POLL_MS = 3 * 1000;
 
 function isAbortError(err: unknown): boolean {
   return err instanceof DOMException && err.name === 'AbortError';
 }
 
 export const App: React.FC = () => {
+  const { t } = useI18n();
   const [quotaState, setQuotaState] = useState<QuotaState | null>(null);
   const [summary, setSummary] = useState<UsageSummary | null>(null);
   const [trend, setTrend] = useState<DailyTrendPoint[]>([]);
@@ -30,7 +52,8 @@ export const App: React.FC = () => {
   const [providers, setProviders] = useState<GroupedUsage[]>([]);
   const [clients, setClients] = useState<GroupedUsage[]>([]);
   const [records, setRecords] = useState<TokenUsageRecord[]>([]);
-  const [range, setRange] = useState<UsageRange>('all');
+  const [speed, setSpeed] = useState<SpeedReport | null>(null);
+  const [range, setRange] = useState<UsageRange>('7d');
   const [isRefreshing, setIsRefreshing] = useState(false);
   const [isLoadingUsage, setIsLoadingUsage] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -39,6 +62,11 @@ export const App: React.FC = () => {
   const [settings, setSettings] = useState<ConsoleSettings | null>(null);
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [editingQuota, setEditingQuota] = useState<import('./types').ProviderQuota | null>(null);
+  /** Non-null while the add-account dialog is open; `type` pre-selects the account type. */
+  const [addAccount, setAddAccount] = useState<{ type?: AccountType } | null>(null);
+  /** Card being dragged, and the card it is currently over. */
+  const [dragId, setDragId] = useState<string | null>(null);
+  const [overId, setOverId] = useState<string | null>(null);
 
   const applyUsageOverview = useCallback((data: Awaited<ReturnType<typeof fetchUsageOverview>>) => {
     setSummary(data.summary);
@@ -47,6 +75,7 @@ export const App: React.FC = () => {
     setProviders(data.providers ?? []);
     setClients(data.clients ?? []);
     setRecords(data.records ?? []);
+    setSpeed(data.speed ?? null);
     setLastUpdated(data.lastSyncTime || Date.now());
   }, []);
 
@@ -88,6 +117,22 @@ export const App: React.FC = () => {
     return () => controller.abort();
   }, [loadQuota]);
 
+  const refreshSeconds = quotaState?.refreshIntervalSeconds ?? settings?.quotaRefreshIntervalSeconds ?? 0;
+  const nextRefreshAt = quotaState?.nextRefreshAt ?? null;
+  useEffect(() => {
+    // Manual-only mode has nothing new to pick up on its own.
+    if (refreshSeconds <= 0) return;
+    const timer = window.setInterval(() => loadQuota(), CACHE_POLL_MS);
+    return () => window.clearInterval(timer);
+  }, [loadQuota, refreshSeconds]);
+
+  useEffect(() => {
+    if (!nextRefreshAt || refreshSeconds <= 0) return;
+    const delay = Math.max(250, nextRefreshAt - Date.now() + 400);
+    const timer = window.setTimeout(() => loadQuota(), delay);
+    return () => window.clearTimeout(timer);
+  }, [nextRefreshAt, refreshSeconds, loadQuota]);
+
   useEffect(() => {
     const controller = new AbortController();
     setIsLoadingUsage(true);
@@ -124,23 +169,64 @@ export const App: React.FC = () => {
     }
   };
 
+  /** Moves account `fromId` to the position of `toId`, shows it at once, then saves; a failure restores the saved order. */
+  const moveCard = useCallback(async (fromId: string, toId: string) => {
+    if (!settings || fromId === toId) return;
+    const ids = settings.accounts.map((account) => account.id);
+    const from = ids.indexOf(fromId);
+    const to = ids.indexOf(toId);
+    if (from < 0 || to < 0) return;
+    ids.splice(to, 0, ids.splice(from, 1)[0]);
+    setSettings({ ...settings, accounts: ids.map((id) => settings.accounts.find((account) => account.id === id)!) });
+    try {
+      setSettings((await reorderAccounts(ids)).settings);
+    } catch (err) {
+      console.error('Failed to save card order:', err);
+      fetchSettings().then(setSettings).catch(() => {});
+    }
+  }, [settings]);
+
+  const moveCardBy = useCallback((id: string, delta: -1 | 1) => {
+    if (!settings) return;
+    const ids = settings.accounts.map((account) => account.id);
+    const target = ids[ids.indexOf(id) + delta];
+    if (target) void moveCard(id, target);
+  }, [settings, moveCard]);
+
   const providerList = useMemo(() => {
     const live = quotaState?.providers ? Object.values(quotaState.providers) : [];
-    return quotaCardsForAccounts(live, settings?.accounts ?? []);
-  }, [quotaState, settings]);
-
-  const openSettings = () => {
-    setSettingsOpen(true);
-    window.requestAnimationFrame(() => {
-      document.getElementById('settings-title')?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+    return quotaCardsForAccounts(live, settings?.accounts ?? [], {
+      loaded: quotaState !== null,
+      reachable: connectionState !== 'offline',
     });
+  }, [quotaState, settings, connectionState]);
+
+  const anyLoading = providerList.some((quota) => quota.status === 'loading' || quota.errorCode === 'offline');
+  useEffect(() => {
+    if (!anyLoading) return;
+    const timer = window.setInterval(() => loadQuota(), LOADING_POLL_MS);
+    return () => window.clearInterval(timer);
+  }, [anyLoading, loadQuota]);
+
+  const thresholds = useMemo(() => ({
+    warning: settings?.quotaBatteryWarning ?? 50,
+    low: settings?.quotaBatteryLow ?? 10,
+  }), [settings?.quotaBatteryWarning, settings?.quotaBatteryLow]);
+
+  const openSettings = (targetId = 'settings-title') => {
+    setSettingsOpen(true);
+    // The target may only exist after the panel has rendered, so look it up on the next frames.
+    window.requestAnimationFrame(() => window.requestAnimationFrame(() => {
+      (document.getElementById(targetId) ?? document.getElementById('settings-title'))
+        ?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+    }));
   };
 
   const hideAgyClaude = settings?.hideAgyClaude ?? true;
 
   return (
     <>
-      <a className="skip-link" href="#main">跳至主要内容</a>
+      <a className="skip-link" href="#main">{t('app.skip')}</a>
       <Header
         onRefresh={handleRefresh}
         isRefreshing={isRefreshing}
@@ -154,69 +240,78 @@ export const App: React.FC = () => {
       />
 
       <main id="main" className="shell" tabIndex={-1}>
-        <header className="hero">
-          <div>
-            <h1>用量控制台</h1>
-            <p className="subtitle">在统一视图查看 Codex / Claude / Antigravity / Grok 额度与本地 Token 用量</p>
-          </div>
-        </header>
-
         {error && (
-          <aside className="notice" role="alert">
-            数据加载提示: {error}
-          </aside>
+          <div className="callout" data-tone="danger" role="alert" style={{ marginBottom: 16 }}>
+            <Icon name="alert" size={15} />
+            <span>{t('app.loadFailed', { error })}</span>
+          </div>
         )}
 
-        <section className="section quota-section" aria-labelledby="quota-title">
+        <section className="section" data-module="quota" aria-labelledby="quota-title">
           <div className="section-heading">
             <div className="title-row">
-              <h2 id="quota-title">剩余额度</h2>
-              <div className="help-tip">
-                <details className="info-help">
-                  <summary aria-label="额度与金额口径">?</summary>
-                  <div className="help-content">
-                    <strong>额度与金额口径</strong>
-                    <p>只显示在设置里添加的账户。未添加的类型不会占位。</p>
-                  </div>
-                </details>
-              </div>
+              <h2 id="quota-title">{t('quota.title')}</h2>
+              <HelpTip text={t('quota.hint')} />
+            </div>
+            <div className="quota-actions">
+              <button type="button" className="circle-btn primary" aria-label={t('quota.add')} title={t('quota.add')} onClick={() => setAddAccount({})}>
+                <Icon name="plus" size={16} />
+              </button>
+              <button type="button" className="circle-btn" aria-label={t('quota.manage')} title={t('quota.manage')} onClick={() => openSettings('account-settings-title')}>
+                <Icon name="settings" size={16} />
+              </button>
             </div>
           </div>
 
           {providerList.length === 0 ? (
-            <div className="panel loading-panel">
-              <p className="hint">
-                {settings ? '还没有添加账户，额度卡不会占位。' : '正在读取账户设置…'}
-                {settings && (
-                  <button type="button" className="text-link" onClick={openSettings}>去设置添加</button>
-                )}
-              </p>
+            <div className="quota-empty">
+              <span>{settings ? t('quota.empty') : t('quota.loadingAccounts')}</span>
+              {settings && <button type="button" className="btn btn-sm btn-primary" onClick={() => setAddAccount({})}>{t('quota.add')}</button>}
             </div>
           ) : (
-            <div id="provider-grid" className="provider-grid">
+            <div className="provider-grid">
               {providerList.map((quota, index) => (
                 <QuotaCard
-                  key={`${quota.accountCardId || quota.provider}-${index}`}
+                  key={quota.accountCardId || `${quota.provider}-${index}`}
                   quota={quota}
+                  reorder={quota.accountCardId && providerList.length > 1 ? {
+                    dragging: dragId === quota.accountCardId,
+                    dropTarget: Boolean(dragId) && overId === quota.accountCardId && dragId !== quota.accountCardId,
+                    onDragStart: () => setDragId(quota.accountCardId!),
+                    onDragOver: () => setOverId(quota.accountCardId!),
+                    onDrop: () => {
+                      if (dragId) void moveCard(dragId, quota.accountCardId!);
+                      setDragId(null);
+                      setOverId(null);
+                    },
+                    onDragEnd: () => { setDragId(null); setOverId(null); },
+                    onMove: (delta) => moveCardBy(quota.accountCardId!, delta),
+                  } : undefined}
                   includeAgyClaude={!hideAgyClaude}
+                  thresholds={thresholds}
+                  refreshIntervalSeconds={refreshSeconds}
+                  nextRefreshAt={nextRefreshAt}
                   onEdit={setEditingQuota}
+                  onSignIn={(type) => setAddAccount({ type })}
+                  onRetry={handleRefresh}
                 />
               ))}
             </div>
           )}
         </section>
 
-        <section className="section" aria-labelledby="overview-title">
+        <section className="section" data-module="usage" aria-labelledby="overview-title">
           <div className="section-heading">
             <div className="title-row">
-              <h2 id="overview-title">趋势与用量</h2>
-              <details className="info-help">
-                <summary aria-label="关于数据">?</summary>
-                <div className="help-content">
-                  <strong>关于用量数据</strong>
-                  <p>自动聚合本地会话日志，费用按公开 API 标价折算估算。切换时间范围不会重复拉取额度。</p>
-                </div>
-              </details>
+              <h2 id="overview-title">{t('overview.title')}</h2>
+              <HelpTip text={t('overview.hint')} />
+            </div>
+            <div className="segmented" role="group" aria-label={t('range.aria')}>
+              {RANGES.map((item) => (
+                <button key={item.id} type="button" aria-pressed={range === item.id} onClick={() => setRange(item.id)}>
+                  {t(item.key)}
+                </button>
+              ))}
             </div>
           </div>
 
@@ -227,13 +322,10 @@ export const App: React.FC = () => {
               models={models}
               providers={providers}
               clients={clients}
-              range={range}
-              onRangeChange={setRange}
+              speed={speed}
             />
           ) : (
-            <div className="panel loading-panel">
-              <p className="hint">{isLoadingUsage ? '正在加载用量数据…' : '暂无用量数据'}</p>
-            </div>
+            <div className="panel empty">{isLoadingUsage ? t('overview.loading') : t('overview.none')}</div>
           )}
         </section>
 
@@ -242,6 +334,7 @@ export const App: React.FC = () => {
           clients={clients}
           providers={providers}
           records={records}
+          speed={speed}
         />
 
         <SettingsPage
@@ -251,9 +344,22 @@ export const App: React.FC = () => {
           onSaved={(next, quota) => {
             setSettings(next);
             if (quota) setQuotaState(quota);
+            void loadQuota();
             loadUsage(range);
           }}
+          onAddAccount={(type) => setAddAccount({ type })}
         />
+        {addAccount && (
+          <AddAccountDialog
+            initialType={addAccount.type}
+            onClose={() => setAddAccount(null)}
+            onAdded={(next) => {
+              setSettings(next);
+              // The server refreshes quota right after a login; pick the new reading up shortly.
+              window.setTimeout(() => loadQuota(), 1500);
+            }}
+          />
+        )}
         <EditAccountDialog
           key={editingQuota?.accountCardId || 'none'}
           quota={editingQuota}
@@ -263,7 +369,7 @@ export const App: React.FC = () => {
       </main>
 
       <footer className="app-footer">
-        <p>Usage Console · 基于 Node.js + React 19 · 采用 Pi Quota Monitor 视觉系统规范</p>
+        <p>{t('app.footer')}</p>
       </footer>
     </>
   );

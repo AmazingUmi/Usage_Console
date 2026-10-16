@@ -1,5 +1,9 @@
 import React, { useEffect, useState } from 'react';
 import type { ConnectionState } from '../types';
+import { useI18n } from '../i18n';
+import type { ThemePref } from '../theme';
+import { useTheme } from '../theme';
+import { Icon } from './Icon';
 
 interface HeaderProps {
   lastUpdated?: number;
@@ -10,26 +14,24 @@ interface HeaderProps {
   onToggleSettings: () => void;
 }
 
-const STATUS_LABEL: Record<ConnectionState, string> = {
-  connecting: '正在连接本地数据源',
-  connected: '已连接本地数据源',
-  offline: '数据源连接失败',
-};
-
 const NAV_ITEMS = [
-  { id: 'quota-title', label: '额度' },
-  { id: 'overview-title', label: '趋势' },
-  { id: 'usage-title', label: '用量' },
-  { id: 'settings-title', label: '设置' },
+  { id: 'quota-title', key: 'nav.quota' },
+  { id: 'overview-title', key: 'nav.overview' },
+  { id: 'usage-title', key: 'nav.detail' },
+  { id: 'settings-title', key: 'nav.settings' },
 ] as const;
 
-/** Highlights the nav pill of the section currently under the top of the viewport. */
+/** One button cycles system -> light -> dark; the icon shows the current choice. */
+const THEME_ICON: Record<ThemePref, 'monitor' | 'sun' | 'moon'> = { system: 'monitor', light: 'sun', dark: 'moon' };
+const THEME_NEXT: Record<ThemePref, ThemePref> = { system: 'light', light: 'dark', dark: 'system' };
+
+/** Highlights the nav item of the section currently under the top of the viewport. */
 function useActiveSection(): string {
   const [active, setActive] = useState<string>(NAV_ITEMS[0].id);
 
   useEffect(() => {
     const update = () => {
-      const line = window.innerHeight * 0.32;
+      const line = window.innerHeight * 0.3;
       const atBottom = window.innerHeight + window.scrollY >= document.documentElement.scrollHeight - 4;
       let current: string = NAV_ITEMS[0].id;
       for (const { id } of NAV_ITEMS) {
@@ -59,19 +61,22 @@ export const Header: React.FC<HeaderProps> = ({
   onToggleSettings,
 }) => {
   const active = useActiveSection();
+  const { t, locale } = useI18n();
+  const { pref, setPref } = useTheme();
+  const statusLabel = t(`conn.${connectionState}`);
   const statusTitle = lastUpdated
-    ? `${STATUS_LABEL[connectionState]} · 更新于 ${new Date(lastUpdated).toLocaleTimeString()}`
-    : STATUS_LABEL[connectionState];
+    ? `${statusLabel} · ${t('header.updated', { time: new Date(lastUpdated).toLocaleTimeString(locale) })}`
+    : statusLabel;
 
   return (
     <header className="app-header">
       <div className="header-inner">
-        <a className="brand" href="#main" aria-label="Usage Console 首页">
-          <span className="brand-mark" aria-hidden="true">π</span>
-          <span className="brand-name">Usage Console</span>
+        <a className="brand" href="#main" aria-label={t('header.home')}>
+          <span className="brand-mark" aria-hidden="true"><Icon name="gauge" size={16} /></span>
+          Usage Console
         </a>
-        <nav className="main-nav" aria-label="页面导航">
-          {NAV_ITEMS.map(({ id, label }) => (
+        <nav className="main-nav" aria-label={t('nav.aria')}>
+          {NAV_ITEMS.map(({ id, key }) => (
             id === 'settings-title' ? (
               <button
                 key={id}
@@ -81,43 +86,38 @@ export const Header: React.FC<HeaderProps> = ({
                 aria-current={active === id ? 'location' : undefined}
                 onClick={onToggleSettings}
               >
-                {label}
+                {t(key)}
               </button>
             ) : (
-              <a key={id} href={`#${id}`} aria-current={active === id ? 'location' : undefined}>
-                {label}
-              </a>
+              <a key={id} href={`#${id}`} aria-current={active === id ? 'location' : undefined}>{t(key)}</a>
             )
           ))}
         </nav>
-        <button
-          id="refresh"
-          className="button-primary"
-          type="button"
-          onClick={onRefresh}
-          disabled={isRefreshing}
-          aria-busy={isRefreshing}
-        >
-          <svg
-            className={`icon-refresh${isRefreshing ? ' is-spinning' : ''}`}
-            viewBox="0 0 16 16"
-            width="14"
-            height="14"
-            aria-hidden="true"
+        <div className="header-meta">
+          <span className="header-circle" role="status" aria-label={statusLabel} title={statusTitle}>
+            <i className="connection-status" data-state={connectionState} />
+          </span>
+          <button
+            type="button"
+            className="header-circle"
+            aria-label={t('theme.toggle', { mode: t(`theme.${pref}`) })}
+            title={t('theme.toggle', { mode: t(`theme.${pref}`) })}
+            onClick={() => setPref(THEME_NEXT[pref])}
           >
-            <path d="M13 8a5 5 0 1 1-1.6-3.7" />
-            <path d="M12.6 2v2.6H10" />
-          </svg>
-          <span className="refresh-label">{isRefreshing ? '正在刷新…' : '刷新额度'}</span>
-        </button>
-        <span
-          id="connection-status"
-          className="connection-status"
-          data-state={connectionState === 'offline' ? 'offline' : connectionState === 'connecting' ? 'connecting' : 'connected'}
-          role="status"
-          aria-label={STATUS_LABEL[connectionState]}
-          title={statusTitle}
-        ></span>
+            <Icon name={THEME_ICON[pref]} size={16} />
+          </button>
+          <button
+            type="button"
+            className="header-circle"
+            onClick={onRefresh}
+            disabled={isRefreshing}
+            aria-busy={isRefreshing}
+            aria-label={isRefreshing ? t('header.refreshing') : t('header.refresh')}
+            title={isRefreshing ? t('header.refreshing') : t('header.refresh')}
+          >
+            <Icon name="refresh" size={16} className={isRefreshing ? 'is-spinning' : undefined} />
+          </button>
+        </div>
       </div>
     </header>
   );
