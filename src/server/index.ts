@@ -49,17 +49,31 @@ setInterval(() => {
 
 // Quota polling follows the "refresh interval" setting (0 = manual only) and is re-armed when it changes.
 let quotaTimer: NodeJS.Timeout | null = null;
+let nextRefreshAt = 0;
 function scheduleQuotaPoll(): void {
   if (quotaTimer) clearTimeout(quotaTimer);
   quotaTimer = null;
   const seconds = loadSettings().quotaRefreshIntervalSeconds;
-  if (seconds <= 0) return;
+  if (seconds <= 0) {
+    nextRefreshAt = 0;
+    return;
+  }
+  nextRefreshAt = Date.now() + seconds * 1000;
   quotaTimer = setTimeout(() => {
     queryAllLiveQuotas(true).catch(() => {}).finally(scheduleQuotaPoll);
   }, seconds * 1000);
   quotaTimer.unref();
 }
 scheduleQuotaPoll();
+
+function decorateQuota<T extends object>(state: T): T & { refreshIntervalSeconds: number; nextRefreshAt: number | null } {
+  const refreshIntervalSeconds = loadSettings().quotaRefreshIntervalSeconds;
+  return {
+    ...state,
+    refreshIntervalSeconds,
+    nextRefreshAt: refreshIntervalSeconds > 0 && nextRefreshAt > 0 ? nextRefreshAt : null,
+  };
+}
 
 // API Routes
 app.get('/api/health', (_req, res) => {
@@ -81,26 +95,27 @@ app.get('/api/quota', async (req, res) => {
     const quotaState = await queryAllLiveQuotas(force);
     const seconds = loadSettings().quotaRefreshIntervalSeconds;
     if (!force && seconds > 0 && quotaAgeMs() > seconds * 1500) queryAllLiveQuotas(true).catch(() => {});
-    res.json(quotaState);
+    res.set('Cache-Control', 'no-store').json(decorateQuota(quotaState));
   } catch (err) {
-    res.json({
+    res.set('Cache-Control', 'no-store').json(decorateQuota({
       updatedAt: Date.now(),
       providers: {},
       error: (err as Error).message,
-    });
+    }));
   }
 });
 
 app.post('/api/quota/refresh', async (_req, res) => {
   try {
     const quotaState = await queryAllLiveQuotas(true);
-    res.json(quotaState);
+    scheduleQuotaPoll();
+    res.set('Cache-Control', 'no-store').json(decorateQuota(quotaState));
   } catch (err) {
-    res.json({
+    res.set('Cache-Control', 'no-store').json(decorateQuota({
       updatedAt: Date.now(),
       providers: {},
       error: (err as Error).message,
-    });
+    }));
   }
 });
 
@@ -363,7 +378,7 @@ app.put('/api/settings', async (req, res) => {
     scheduleQuotaPoll();
     const pathsChanged = JSON.stringify(loadSettings().paths) !== before;
     if (pathsChanged || req.body?.rescan === true || previousDataDir !== nextDataDir) await calibrateData();
-    const quota = pathsChanged ? await queryAllLiveQuotas(true) : null;
+    const quota = pathsChanged ? decorateQuota(await queryAllLiveQuotas(true)) : null;
     res.json({ settings: publicSettings(), quota });
   } catch (err) {
     res.status(400).json({ error: (err as Error).message });

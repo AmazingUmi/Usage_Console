@@ -13,4 +13,7 @@
   .battery-fill, .breakdown-track span { background: Highlight; box-shadow: none; }
   .battery, .panel, .section, .app-header { border: 1px solid CanvasText; }
   .connection-status, .dot, .badge::before { forced-color-adjust: none; }
+  .countdown-gauge .halo { display: none; }
+  .countdown-gauge .disc { background: Canvas; box-shadow: none; }
+  .countdown-gauge .arc, .countdown-gauge .tr { stroke: CanvasText; }
 }

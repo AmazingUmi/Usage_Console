@@ -117,13 +117,21 @@ export const App: React.FC = () => {
     return () => controller.abort();
   }, [loadQuota]);
 
-  const refreshSeconds = settings?.quotaRefreshIntervalSeconds ?? 120;
+  const refreshSeconds = quotaState?.refreshIntervalSeconds ?? settings?.quotaRefreshIntervalSeconds ?? 0;
+  const nextRefreshAt = quotaState?.nextRefreshAt ?? null;
   useEffect(() => {
     // Manual-only mode has nothing new to pick up on its own.
     if (refreshSeconds <= 0) return;
     const timer = window.setInterval(() => loadQuota(), CACHE_POLL_MS);
     return () => window.clearInterval(timer);
   }, [loadQuota, refreshSeconds]);
+
+  useEffect(() => {
+    if (!nextRefreshAt || refreshSeconds <= 0) return;
+    const delay = Math.max(250, nextRefreshAt - Date.now() + 400);
+    const timer = window.setTimeout(() => loadQuota(), delay);
+    return () => window.clearTimeout(timer);
+  }, [nextRefreshAt, refreshSeconds, loadQuota]);
 
   useEffect(() => {
     const controller = new AbortController();
@@ -281,6 +289,8 @@ export const App: React.FC = () => {
                   } : undefined}
                   includeAgyClaude={!hideAgyClaude}
                   thresholds={thresholds}
+                  refreshIntervalSeconds={refreshSeconds}
+                  nextRefreshAt={nextRefreshAt}
                   onEdit={setEditingQuota}
                   onSignIn={(type) => setAddAccount({ type })}
                   onRetry={handleRefresh}
@@ -334,6 +344,7 @@ export const App: React.FC = () => {
           onSaved={(next, quota) => {
             setSettings(next);
             if (quota) setQuotaState(quota);
+            void loadQuota();
             loadUsage(range);
           }}
           onAddAccount={(type) => setAddAccount({ type })}

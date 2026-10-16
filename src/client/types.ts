@@ -34,6 +34,10 @@ export interface ProviderQuota {
 
 export interface QuotaState {
   updatedAt: number;
+  /** Seconds between automatic quota reads. 0 is manual only. */
+  refreshIntervalSeconds?: number;
+  /** When the server will next read quota. Null when manual or not scheduled. */
+  nextRefreshAt?: number | null;
   providers: Record<string, ProviderQuota>;
 }
 

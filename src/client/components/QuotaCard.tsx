@@ -1,7 +1,8 @@
 import React from 'react';
 import type { AccountType, ProviderQuota, QuotaWindow } from '../types';
 import { collectQuotaWindows } from '../lib/quota';
-import { formatAgeShort, formatCompactDuration } from '../lib/format';
+import { CountdownGauge } from './CountdownGauge';
+import { formatCompactDuration, formatCountdownLeft } from '../lib/format';
 import { useNow } from '../lib/useNow';
 import { useI18n } from '../i18n';
 import { Icon } from './Icon';
@@ -30,6 +31,10 @@ interface QuotaCardProps {
   onEdit?: (quota: ProviderQuota) => void;
   onSignIn?: (type: AccountType) => void;
   onRetry?: () => void;
+  /** Automatic quota refresh interval. 0 means manual only, so there is no countdown. */
+  refreshIntervalSeconds?: number;
+  /** When the next automatic refresh is due. */
+  nextRefreshAt?: number | null;
 }
 
 type Translate = ReturnType<typeof useI18n>['t'];
@@ -54,26 +59,21 @@ function windowLabel(label: string, t: Translate): string {
   return text.replace(/ Limit Remaining$/i, '').replace(/ limit/i, '');
 }
 
-/** How long a reading counts as fresh before the ring is empty (matches how long a failed refresh may show stale data). */
-const FRESH_MS = 10 * 60 * 1000;
-const RING_RADIUS = 12;
-const RING_LENGTH = 2 * Math.PI * RING_RADIUS;
-
-/** Round "age of the reading": the ring drains over ten minutes and the centre shows the age in one short unit. */
-const AgeCircle: React.FC<{ capturedAt: number; now: number }> = ({ capturedAt, now }) => {
+/** Countdown to the next automatic quota refresh, beside Edit. The ring is time left, not time elapsed. */
+const RefreshCountdown: React.FC<{ intervalSeconds: number; nextRefreshAt: number }> = ({ intervalSeconds, nextRefreshAt }) => {
   const { t, locale } = useI18n();
-  const age = Math.max(0, now - capturedAt);
-  const progress = Math.max(0, 1 - age / FRESH_MS);
-  const tone = age <= 3 * 60 * 1000 ? 'fresh' : age <= FRESH_MS ? 'aging' : 'old';
-  const title = t('quota.readAt', { time: new Date(capturedAt).toLocaleTimeString(locale) });
+  const now = useNow(1000);
+  const total = intervalSeconds * 1000;
+  const remaining = nextRefreshAt - now;
+  const progress = total > 0 ? Math.min(1, Math.max(0, remaining / total)) : 0;
+  const tone = remaining <= 0 ? 'old' : progress <= 0.25 ? 'aging' : 'fresh';
   return (
-    <span className="tool-circle age-circle" data-tone={tone} title={title} aria-label={title} role="img">
-      <svg className="age-ring" viewBox="0 0 28 28" aria-hidden="true">
-        <circle className="age-track" cx="14" cy="14" r={RING_RADIUS} />
-        <circle className="age-arc" cx="14" cy="14" r={RING_RADIUS} strokeDasharray={`${progress * RING_LENGTH} ${RING_LENGTH}`} />
-      </svg>
-      <span className="age-text">{formatAgeShort(age) ?? t('quota.justNow')}</span>
-    </span>
+    <CountdownGauge
+      label={formatCountdownLeft(remaining)}
+      progress={progress}
+      title={t('quota.nextRefresh', { time: new Date(nextRefreshAt).toLocaleTimeString(locale) })}
+      tone={tone}
+    />
   );
 };
 
@@ -102,7 +102,17 @@ const Battery: React.FC<{ window: QuotaWindow; thresholds: BatteryThresholds; no
   );
 };
 
-export const QuotaCard: React.FC<QuotaCardProps> = ({ quota, includeAgyClaude = false, thresholds, reorder, onEdit, onSignIn, onRetry }) => {
+export const QuotaCard: React.FC<QuotaCardProps> = ({
+  quota,
+  includeAgyClaude = false,
+  thresholds,
+  reorder,
+  onEdit,
+  onSignIn,
+  onRetry,
+  refreshIntervalSeconds = 0,
+  nextRefreshAt,
+}) => {
   const { t, locale } = useI18n();
   const now = useNow();
   const visuals = providerVisuals(quota.provider);
@@ -162,7 +172,9 @@ export const QuotaCard: React.FC<QuotaCardProps> = ({ quota, includeAgyClaude = 
           <p title={subtitle}>{subtitle || t('quota.official')}</p>
         </div>
         <div className="card-tools">
-          {quota.capturedAt > 0 && !loading && <AgeCircle capturedAt={quota.capturedAt} now={now} />}
+          {!loading && refreshIntervalSeconds > 0 && nextRefreshAt != null && (
+            <RefreshCountdown intervalSeconds={refreshIntervalSeconds} nextRefreshAt={nextRefreshAt} />
+          )}
           {onEdit && quota.accountCardId && (
             <button type="button" className="tool-circle" aria-label={t('quota.edit')} title={t('quota.edit')} onClick={() => onEdit(quota)}>
               <Icon name="edit" size={13} />
