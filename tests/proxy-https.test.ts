@@ -6,6 +6,7 @@ import https from 'node:https';
 import net from 'node:net';
 import os from 'node:os';
 import path from 'node:path';
+import type { Duplex } from 'node:stream';
 import test from 'node:test';
 import { promisify } from 'node:util';
 
@@ -62,7 +63,7 @@ subjectAltName = DNS:chatgpt.com,DNS:cli-chat-proxy.grok.com,DNS:api.anthropic.c
     res.end(JSON.stringify(body));
   });
   const tunnels: string[] = [];
-  const sockets = new Set<net.Socket>();
+  const sockets = new Set<Duplex>();
   const proxy = http.createServer((_req, res) => { res.writeHead(500); res.end('Expected an HTTPS CONNECT tunnel'); });
   proxy.on('connect', (req, client, head) => {
     tunnels.push(req.url!);

@@ -13,8 +13,9 @@ export default defineConfig({
     port: 3000,
     proxy: {
       '/api': {
-        target: 'http://localhost:3001',
-        changeOrigin: true,
+        target: 'http://127.0.0.1:3001',
+        // Preserve the browser-facing Host so the API can check Origin without a dev-only bypass.
+        changeOrigin: false,
       },
     },
   },

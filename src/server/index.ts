@@ -1,9 +1,9 @@
 import express from 'express';
-import cors from 'cors';
 import path from 'node:path';
-import fs from 'node:fs';
-import { fileURLToPath } from 'node:url';
+import { fileURLToPath, pathToFileURL } from 'node:url';
+import { resolveClientDist } from './client-dist.js';
 import { CONFIG } from './config.js';
+import { browserUrl, isLoopbackHost, isLoopbackRequestHost } from './listen.js';
 import { getProxyStatus, initializeProxy } from './network/proxy.js';
 import { L, langMiddleware } from './i18n.js';
 import { findAgyBinary } from './quota/agy.js';
@@ -21,31 +21,64 @@ import { finishClaudeLogin, pollCodexLogin, pollGrokLogin, startClaudeLogin, sta
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
-// Configure the owned HTTP transport and helper environment before any quota/auth requests.
-initializeProxy();
-
 const app = express();
-app.use(cors());
+// Same-origin UI only. A permissive CORS policy would let any website call this process.
+app.use((req, res, next) => {
+  let loopbackBind = true;
+  try {
+    loopbackBind = isLoopbackHost(CONFIG.host);
+  } catch {
+    // A refused bind never listens; fail closed if a request still arrives.
+  }
+  if (loopbackBind && !isLoopbackRequestHost(req.headers.host)) {
+    res.status(403).type('text/plain').send('本控制台只接受本机请求。\nThis console only accepts local requests.');
+    return;
+  }
+  next();
+});
+// Host checks stop DNS rebinding; Origin/Fetch Metadata also stop cross-origin side effects.
+// Headerless local clients remain supported. Do not trust forwarded host/origin headers.
+app.use('/api', (req, res, next) => {
+  const origin = req.headers.origin;
+  const site = req.headers['sec-fetch-site'];
+  let sameOrigin = origin === undefined;
+  if (origin !== undefined && req.headers.host) {
+    try {
+      sameOrigin = origin === new URL(`${req.protocol}://${req.headers.host}`).origin;
+    } catch {
+      sameOrigin = false;
+    }
+  }
+  res.vary('Origin').vary('Sec-Fetch-Site');
+  if (!sameOrigin || (site !== undefined && site !== 'same-origin' && site !== 'none')) {
+    res.status(403).type('text/plain').send('本控制台拒绝跨源 API 请求。\nCross-origin API requests are not allowed.');
+    return;
+  }
+  next();
+});
 app.use(express.json());
 app.use(langMiddleware);
 
-// Initialize usage store and query quotas on server launch
-calibrateData().then(({ count }) => {
-  console.log(`[UsageStore] Calibrated ${count} usage records. Accounts come from console logins only.`);
-}).catch(err => {
-  console.error('[UsageStore] Initial sync failed:', err);
-});
+// Start work only after a successful bind; failed CLI startup must leave no scans or timers behind.
+function startBackgroundTasks(): void {
+  calibrateData().then(({ count }) => {
+    console.log(`[UsageStore] Calibrated ${count} usage records. Accounts come from console logins only.`);
+  }).catch(err => {
+    console.error('[UsageStore] Initial sync failed:', err);
+  });
 
-queryAllLiveQuotas().then(() => {
-  console.log('[Quota] Initial live OAuth quota check completed.');
-}).catch(err => {
-  console.warn('[Quota] Initial quota check warning:', err.message);
-});
+  queryAllLiveQuotas().then(() => {
+    console.log('[Quota] Initial live OAuth quota check completed.');
+  }).catch(err => {
+    console.warn('[Quota] Initial quota check warning:', err.message);
+  });
 
-// Local usage is cheap to rescan, so it keeps a fixed cadence.
-setInterval(() => {
-  usageStore.sync().catch(() => {});
-}, 120 * 1000);
+  // The listening server, not a background timer, owns the process lifetime.
+  setInterval(() => {
+    usageStore.sync().catch(() => {});
+  }, 120 * 1000).unref();
+  scheduleQuotaPoll();
+}
 
 // Quota polling follows the "refresh interval" setting (0 = manual only) and is re-armed when it changes.
 let quotaTimer: NodeJS.Timeout | null = null;
@@ -64,7 +97,6 @@ function scheduleQuotaPoll(): void {
   }, seconds * 1000);
   quotaTimer.unref();
 }
-scheduleQuotaPoll();
 
 function decorateQuota<T extends object>(state: T): T & { refreshIntervalSeconds: number; nextRefreshAt: number | null } {
   const refreshIntervalSeconds = loadSettings().quotaRefreshIntervalSeconds;
@@ -385,15 +417,59 @@ app.put('/api/settings', async (req, res) => {
   }
 });
 
-// Serve frontend static files if built
-const clientDist = path.resolve(__dirname, '../../dist/client');
-if (fs.existsSync(clientDist)) {
-  app.use(express.static(clientDist));
-  app.get('*', (_req, res) => {
-    res.sendFile(path.join(clientDist, 'index.html'));
+let listening = false;
+
+/** Starts the local server. Safe to call once; the CLI and a direct `node`/`tsx` run both use this. */
+export function startServer(): Promise<{ url: string; clientBuilt: boolean }> {
+  if (listening) return Promise.reject(new Error('Server is already listening'));
+  listening = true;
+  const clientDist = resolveClientDist(__dirname);
+  if (clientDist) {
+    app.use(express.static(clientDist));
+    app.get('*', (_req, res) => {
+      res.sendFile(path.join(clientDist, 'index.html'));
+    });
+  }
+  let host: string;
+  let port: number;
+  try {
+    host = CONFIG.host;
+    port = CONFIG.port;
+    // Configure the owned transport before the first quota/auth request, not on module import.
+    initializeProxy();
+  } catch (err) {
+    listening = false;
+    return Promise.reject(err);
+  }
+  if (!isLoopbackHost(host)) {
+    console.warn(`[警告] 正在监听 ${host}，API 没有鉴权。\n[warning] Listening on ${host} with no authentication.`);
+  }
+  return new Promise((resolve, reject) => {
+    const server = app.listen(port, host, () => {
+      startBackgroundTasks();
+      const address = server.address();
+      const actualPort = typeof address === 'object' && address ? address.port : port;
+      resolve({ url: browserUrl(host, actualPort), clientBuilt: clientDist != null });
+    });
+    server.on('error', (err) => {
+      listening = false;
+      reject(err);
+    });
   });
 }
 
-app.listen(CONFIG.port, CONFIG.host, () => {
-  console.log(`[Usage Console Server] Running at http://${CONFIG.host}:${CONFIG.port}`);
-});
+function isDirectRun(): boolean {
+  const entry = process.argv[1];
+  if (!entry) return false;
+  return import.meta.url === pathToFileURL(path.resolve(entry)).href;
+}
+
+if (isDirectRun()) {
+  startServer().then(({ url, clientBuilt }) => {
+    console.log(`[Usage Console] ${url}`);
+    if (!clientBuilt) console.error('前端尚未构建。请先执行 pnpm build。\nUI is not built. Run pnpm build.');
+  }).catch((err) => {
+    console.error(err);
+    process.exit(1);
+  });
+}

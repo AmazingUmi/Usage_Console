@@ -10,7 +10,7 @@
 .provider-heading { display: flex; align-items: flex-start; gap: 10px; padding: 14px 14px 4px 16px; }
 .card-tools { display: flex; align-items: center; gap: 6px; margin-top: 0; }
 
-/* Card tools: the reading-age countdown, then the edit and status circles. */
+/* Card tools: refresh countdown, then the edit and status circles. */
 .tool-circle {
   position: relative; display: grid; place-items: center; flex: none; width: 28px; height: 28px; padding: 0;
   border: 1px solid var(--stroke); border-radius: 50%; background: var(--fill-2); color: var(--muted);

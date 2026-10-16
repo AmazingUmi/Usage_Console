@@ -5,6 +5,7 @@ import http from 'node:http';
 import net from 'node:net';
 import os from 'node:os';
 import path from 'node:path';
+import type { Duplex } from 'node:stream';
 import { promisify } from 'node:util';
 import test from 'node:test';
 import { describeProxy, parseMacSystemProxy, resolveProxyEnvironment, validProxyPort } from '../src/server/network/proxy-config.js';
@@ -97,7 +98,7 @@ test('explicit server fetch uses the configured proxy, bypasses localhost, and d
     forwarded.on('error', () => { res.writeHead(502); res.end(); });
     req.pipe(forwarded);
   });
-  const sockets = new Set<net.Socket>();
+  const sockets = new Set<Duplex>();
   proxy.on('connect', (req, client, head) => {
     tunnels.push(req.url!);
     const upstream = net.connect(targetPort, '127.0.0.1', () => {
