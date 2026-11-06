@@ -3,6 +3,7 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import type { ScanReport } from './usage/types.js';
+import { resolveAntigravityBrainDirs } from './usage/antigravity-sessions.js';
 import { validProxyPort } from './network/proxy-config.js';
 
 export interface PathSettings {
@@ -10,6 +11,7 @@ export interface PathSettings {
   piAgentDir: string;
   claudeProjectsDir: string;
   grokSessionsDir: string;
+  antigravityDir: string;
 }
 
 export type AccountType = 'gpt' | 'claude' | 'grok' | 'agy';
@@ -50,15 +52,25 @@ export interface RuntimePaths {
   /** Every Claude projects dir to scan: the configured one, or all default locations that exist. */
   claudeProjectsAll: string[];
   grokSessions: string;
+  antigravity: string;
+  /** Every Antigravity brain dir to scan: Desktop/IDE, CLI, legacy IDE, or the configured path. */
+  antigravityBrainAll: string[];
 }
 
-const PATH_KEYS: (keyof PathSettings)[] = ['codexDir', 'piAgentDir', 'claudeProjectsDir', 'grokSessionsDir'];
+const PATH_KEYS: (keyof PathSettings)[] = [
+  'codexDir',
+  'piAgentDir',
+  'claudeProjectsDir',
+  'grokSessionsDir',
+  'antigravityDir',
+];
 
 const EMPTY_PATHS: PathSettings = {
   codexDir: '',
   piAgentDir: '',
   claudeProjectsDir: '',
   grokSessionsDir: '',
+  antigravityDir: '',
 };
 
 let storedCache: StoredSettings | null = null;
@@ -71,6 +83,7 @@ export function defaultPaths(): PathSettings {
     piAgentDir: path.join(home, '.pi', 'agent'),
     claudeProjectsDir: path.join(home, '.claude', 'projects'),
     grokSessionsDir: path.join(home, '.grok', 'sessions'),
+    antigravityDir: path.join(home, '.gemini'),
   };
 }
 
@@ -220,6 +233,8 @@ function computeRuntimePaths(): RuntimePaths {
     ? [claudeProjectsDir]
     : defaultClaudeProjectDirs();
   const grokSessionsDir = pick('grokSessionsDir');
+  const antigravityDir = pick('antigravityDir');
+  const antigravityBrainAll = resolveAntigravityBrainDirs(antigravityDir);
   return {
     home: os.homedir(),
     codex: codexDir,
@@ -231,6 +246,8 @@ function computeRuntimePaths(): RuntimePaths {
     claudeProjects: claudeProjectsAll.find((dir) => fs.existsSync(dir)) || claudeProjectsDir,
     claudeProjectsAll,
     grokSessions: grokSessionsDir,
+    antigravity: antigravityBrainAll.find((dir) => fs.existsSync(dir)) || antigravityBrainAll[0] || antigravityDir,
+    antigravityBrainAll,
   };
 }
 
@@ -326,12 +343,14 @@ export function settingsView(scan: ScanReport) {
     piAgentDir: stored.paths.piAgentDir || defaults.piAgentDir,
     claudeProjectsDir: stored.paths.claudeProjectsDir || defaults.claudeProjectsDir,
     grokSessionsDir: stored.paths.grokSessionsDir || defaults.grokSessionsDir,
+    antigravityDir: stored.paths.antigravityDir || defaults.antigravityDir,
   };
   const resolved: PathSettings = {
     codexDir: runtime.codex,
     piAgentDir: runtime.piAgent,
     claudeProjectsDir: runtime.claudeProjects,
     grokSessionsDir: runtime.grokSessions,
+    antigravityDir: runtime.antigravity,
   };
   return {
     hideAgyClaude: stored.hideAgyClaude,
@@ -343,11 +362,13 @@ export function settingsView(scan: ScanReport) {
     defaults,
     resolved,
     claudeProjectsAll: runtime.claudeProjectsAll,
+    antigravityBrainAll: runtime.antigravityBrainAll,
     availability: {
       codexDir: pathExists(resolved.codexDir),
       piAgentDir: pathExists(resolved.piAgentDir),
       claudeProjectsDir: runtime.claudeProjectsAll.some(pathExists),
       grokSessionsDir: pathExists(resolved.grokSessionsDir),
+      antigravityDir: runtime.antigravityBrainAll.some(pathExists),
     },
     accounts: stored.accounts,
     dataDir: stored.dataDir || defaultDataDir(),

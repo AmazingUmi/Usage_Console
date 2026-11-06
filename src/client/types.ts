@@ -86,7 +86,7 @@ export interface GroupedUsage {
 export interface TokenUsageRecord {
   id?: string;
   timestamp: number;
-  client?: string; // 'codex' | 'pi' | 'grokbuild' | 'claude' | 'gemini' | ...
+  client?: string; // 'codex' | 'pi' | 'grokbuild' | 'claude' | 'antigravity' | 'gemini' | ...
   provider: string;
   model: string;
   input: number;
@@ -143,6 +143,7 @@ export interface PathSettings {
   piAgentDir: string;
   claudeProjectsDir: string;
   grokSessionsDir: string;
+  antigravityDir: string;
 }
 
 export type AccountType = 'gpt' | 'claude' | 'grok' | 'agy';
@@ -204,6 +205,7 @@ export interface ConsoleSettings {
   resolved: PathSettings;
   availability: Record<keyof PathSettings, boolean>;
   claudeProjectsAll?: string[];
+  antigravityBrainAll?: string[];
   accounts: ConsoleAccount[];
   dataDir: string;
   scan: {

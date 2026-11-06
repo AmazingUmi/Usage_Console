@@ -37,7 +37,7 @@ npm install -g usage-console@latest
 ### 能做什么
 
 - **额度看板**：添加 Codex、Claude、Grok 或 AGY 账户，查看服务商返回的额度、窗口和重置时间。没有添加的账户不占卡片。
-- **本地用量**：扫描 Codex、Claude Code（含子代理）、Pi 和 Grok 会话；可查看今天、7 天、30 天或全部记录。不额外读取 Pi 用量账本，避免与会话重复计数。
+- **本地用量**：扫描 Codex、Claude Code（含子代理）、Antigravity（桌面端 / IDE 与 CLI，含子代理）、Pi 和 Grok 会话；可查看今天、7 天、30 天或全部记录。不额外读取 Pi 用量账本，避免与会话重复计数。
 - **趋势与明细**：输入、输出、缓存命中/写入、模型/渠道分布、最近请求、首 Token 等待与输出速度。
 - **费用估算**：按内置模型单价估算 USD / CNY，供参考，不等同于服务商实际账单。
 - **界面设置**：中文 / English、跟随系统或明暗主题、卡片排序、刷新间隔、电池颜色阈值、扫描路径及本机代理。
@@ -51,7 +51,7 @@ npm install -g usage-console@latest
    - **AGY**：先在本机安装并登录 Antigravity CLI（`agy`），再添加 AGY 账户。控制台调用本机 `agy --print /usage`，不另存 AGY 登录。
 3. 如需代理，到「设置 → 网络代理」保存本机 HTTP / 混合代理端口，然后重启服务。
 
-默认用量路径：`~/.codex/sessions`、`~/.claude/projects`、`~/.pi/agent/sessions`、`~/.grok/sessions`。Claude 也检测 `CLAUDE_CONFIG_DIR` 和系统配置目录中的 projects。
+默认用量路径：`~/.codex/sessions`、`~/.claude/projects`、`~/.gemini/antigravity/brain` 与 `~/.gemini/antigravity-cli/brain`、`~/.pi/agent/sessions`、`~/.grok/sessions`。Claude 也检测 `CLAUDE_CONFIG_DIR` 和系统配置目录中的 projects。
 
 未登录的额度卡会提示登录；授权失效会清除旧读数。接口临时失败时，最多保留 10 分钟的旧读数，并标注其年龄。额度刷新默认每 2 分钟一次，可在设置中调整；过短可能触发服务商限流。
 
@@ -139,7 +139,7 @@ To develop from source, see the development instructions above. Upgrade with `np
 ### Features and setup
 
 - Quota cards for Codex, Claude, Grok, and the local Antigravity CLI. Add only the accounts you need.
-- Scan local Codex, Claude Code (including subagents), Pi, and Grok sessions. Pi's separate usage ledger is not read again.
+- Scan local Codex, Claude Code (including subagents), Antigravity (Desktop/IDE and CLI, including subagents), Pi, and Grok sessions. Pi's separate usage ledger is not read again.
 - Token/cache trends, estimated USD/CNY spend, model/provider breakdowns, recent requests, time-to-first-token, and output speed. Estimated costs are not provider invoices.
 - Chinese / English, system/light/dark themes, card ordering, configurable scan paths, quota refresh, and local HTTP proxy settings.
 

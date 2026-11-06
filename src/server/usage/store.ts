@@ -4,6 +4,7 @@ import path from 'node:path';
 import { CONFIG } from '../config.js';
 import type { TokenUsageRecord, UsageSummary, DailyTrendPoint, GroupedUsage, UsageRange, ScanReport, ScanSourceStatus } from './types.js';
 import { estimateCost } from './pricing.js';
+import { scanAntigravitySessions } from './antigravity-sessions.js';
 import { scanClaudeConversations } from './claude-sessions.js';
 import { parseCodexSession } from './codex-sessions.js';
 import { speedWindow, summarizeSpeed, type SpeedReport } from './speed.js';
@@ -124,6 +125,7 @@ class UsageStore {
       this.ingestGrokSessions(addRecord),
       this.ingestCodexSessions(addRecord),
       this.ingestClaudeSessions(addRecord),
+      this.ingestAntigravitySessions(addRecord),
     ]);
 
     loadedRecords.sort((a, b) => b.timestamp - a.timestamp);
@@ -310,6 +312,42 @@ class UsageStore {
       status.note = (err as Error).message;
       this.noteSource(status);
       console.warn('[UsageStore] Could not read claude sessions:', (err as Error).message);
+    }
+  }
+
+  private async ingestAntigravitySessions(addRecord: (rec: TokenUsageRecord) => boolean): Promise<void> {
+    const dirs = CONFIG.paths.antigravityBrainAll;
+    const status: ScanSourceStatus = {
+      id: 'antigravity',
+      label: 'Antigravity 会话',
+      path: dirs.join('，'),
+      exists: false,
+      filesScanned: 0,
+      records: 0,
+    };
+    try {
+      const scanned = scanAntigravitySessions(dirs);
+      status.exists = scanned.exists;
+      status.filesScanned = scanned.filesScanned;
+      for (const record of scanned.records) {
+        if (addRecord(record)) status.records += 1;
+      }
+      const notes = ['Deduplicated per message, including sub-agents'];
+      status.noteCodes = ['dedupe'];
+      if (scanned.truncated) {
+        notes.push(`Only the latest ${scanned.filesScanned} files kept`);
+        status.noteCodes.push(`truncated:${scanned.filesScanned}`);
+      }
+      if (scanned.errors > 0) {
+        notes.push(`${scanned.errors} files could not be read`);
+        status.noteCodes.push(`errors:${scanned.errors}`);
+      }
+      status.note = notes.join('; ');
+      this.noteSource(status);
+    } catch (err) {
+      status.note = (err as Error).message;
+      this.noteSource(status);
+      console.warn('[UsageStore] Could not read antigravity sessions:', (err as Error).message);
     }
   }
 

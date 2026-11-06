@@ -224,7 +224,7 @@ export function attributeUsage(records: TokenUsageRecord[], accounts: ManagedAcc
     if ((client === 'codex' || /codex|openai/i.test(provider)) && gpt.length === 1) userId = gpt[0].userId;
     else if ((client === 'claude' || /anthropic/i.test(provider)) && claude.length === 1) userId = claude[0].userId;
     else if ((client === 'grokbuild' || /xai|grok/i.test(provider)) && grok.length === 1) userId = grok[0].userId;
-    else if (/antigravity|gemini/i.test(provider) && agy.length === 1) userId = agy[0].userId;
+    else if ((client === 'antigravity' || /antigravity|gemini/i.test(provider)) && agy.length === 1) userId = agy[0].userId;
     return userId ? { ...record, userId } : record;
   });
 }

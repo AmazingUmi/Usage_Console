@@ -1,7 +1,7 @@
 export interface TokenUsageRecord {
   id?: string;
   timestamp: number;
-  client?: string; // 'codex' | 'pi' | 'grokbuild' | 'claude' | 'gemini' | 'opencode'
+  client?: string; // 'codex' | 'pi' | 'grokbuild' | 'claude' | 'antigravity' | 'gemini' | 'opencode'
   provider: string; // 'openai-codex' | 'anthropic' | 'antigravity' | 'xai' | ...
   model: string;
   input: number;

@@ -18,7 +18,13 @@ interface SettingsPageProps {
   onAddAccount: (type?: AccountType) => void;
 }
 
-const PATH_KEYS: Array<keyof PathSettings> = ['codexDir', 'piAgentDir', 'claudeProjectsDir', 'grokSessionsDir'];
+const PATH_KEYS: Array<keyof PathSettings> = [
+  'codexDir',
+  'piAgentDir',
+  'claudeProjectsDir',
+  'grokSessionsDir',
+  'antigravityDir',
+];
 const LANGS: Lang[] = ['zh', 'en'];
 /** Types that read quota through a login held by this console. */
 const LOGIN_TYPES = new Set<AccountType>(['gpt', 'claude', 'grok']);
@@ -279,7 +285,9 @@ export const SettingsPage: React.FC<SettingsPageProps> = ({ open, onToggle, sett
                       const ready = settings.availability[key];
                       const effective = key === 'claudeProjectsDir' && settings.claudeProjectsAll?.length
                         ? settings.claudeProjectsAll.join(lang === 'zh' ? '，' : ', ')
-                        : settings.resolved[key];
+                        : key === 'antigravityDir' && settings.antigravityBrainAll?.length
+                          ? settings.antigravityBrainAll.join(lang === 'zh' ? '，' : ', ')
+                          : settings.resolved[key];
                       return (
                         <label key={key} className="block field">
                           <span className="field-label">
