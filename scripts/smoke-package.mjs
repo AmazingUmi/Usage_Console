@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict';
-import { execFileSync, execSync, spawn } from 'node:child_process';
+import { execFile, execFileSync, execSync, spawn } from 'node:child_process';
 import fs from 'node:fs';
 import http from 'node:http';
 import net from 'node:net';
@@ -7,8 +7,10 @@ import os from 'node:os';
 import path from 'node:path';
 import { setTimeout as delay } from 'node:timers/promises';
 import { fileURLToPath } from 'node:url';
+import { promisify } from 'node:util';
 
 const root = fileURLToPath(new URL('../', import.meta.url));
+const execFileAsync = promisify(execFile);
 const pkg = JSON.parse(fs.readFileSync(path.join(root, 'package.json'), 'utf8'));
 if (!process.argv[2]) throw new Error('Usage: node scripts/smoke-package.mjs <tarball>');
 const archive = path.resolve(process.argv[2]);
@@ -97,7 +99,19 @@ try {
     assert.match(res.type, asset.endsWith('.css') ? /text\/css/ : /javascript/);
     assert.ok(res.body.length > 1000);
   }
-  console.log(`Installed ${pkg.name}@${pkg.version}: CLI, health, HTML, JS and CSS passed (isolated HOME).`);
+  // Run the installed client against the installed server, with environment proxying enabled.
+  const menuEnv = { ...env, NODE_USE_ENV_PROXY: '1', HTTP_PROXY: 'http://127.0.0.1:1', NO_PROXY: '' };
+  const menu = await execFileAsync(process.execPath, [entry, 'menubar', '--data', '--url', url, '--lang', 'en'], {
+    cwd: temp, env: menuEnv, timeout: 12_000,
+  });
+  const payload = JSON.parse(menu.stdout);
+  assert.deepEqual(payload.accounts, []);
+  assert.ok(payload.rows.some(row => row.title === 'No accounts'));
+  assert.ok(payload.rows.some(row => row.action === 'dashboard' && row.url === `${url}/`));
+  assert.ok(payload.rows.some(row => row.action === 'refresh'));
+  assert.ok(Buffer.from(payload.image, 'base64').toString().startsWith('%PDF-1.4'));
+  assert.ok(!payload.rows.some(row => /Offline/.test(row.title)));
+  console.log(`Installed ${pkg.name}@${pkg.version}: CLI, health, HTML, JS, CSS and native menu data passed (isolated HOME).`);
 } finally {
   agent.destroy();
   if (child) {

@@ -105,7 +105,7 @@ async function main() {
     const [pack] = JSON.parse(result);
     if (pack.name !== info.name || pack.version !== info.version) throw new Error('Packed manifest does not match the release');
     const files = pack.files.map((file) => file.path);
-    for (const required of ['bin/usage-console.js', 'dist/server/cli.js', 'dist/server/index.js', 'dist/client/index.html', 'LICENSE']) {
+    for (const required of ['bin/usage-console.js', 'bin/UsageConsoleMenuBar.swift', 'dist/server/cli.js', 'dist/server/index.js', 'dist/server/menubar.js', 'dist/server/menubar-rings.js', 'dist/client/index.html', 'LICENSE']) {
       if (!files.includes(required)) throw new Error(`Missing release file: ${required}`);
     }
     if (files.some((file) => !/^(?:bin\/|dist\/|package\.json$|README\.md$|LICENSE$)/.test(file))) {

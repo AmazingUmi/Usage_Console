@@ -40,7 +40,7 @@ test('npm pack builds a clean source snapshot and includes the published CLI and
   const { stdout } = await execFileAsync(command, args, { cwd: source, env, timeout: 60_000 });
   const [pack] = JSON.parse(stdout) as { filename: string; files: { path: string }[] }[];
   const files = pack.files.map((file) => file.path);
-  for (const name of ['bin/usage-console.js', 'dist/server/cli.js', 'dist/server/index.js', 'dist/client/index.html', 'LICENSE']) {
+  for (const name of ['bin/usage-console.js', 'bin/UsageConsoleMenuBar.swift', 'dist/server/cli.js', 'dist/server/index.js', 'dist/server/menubar.js', 'dist/server/menubar-rings.js', 'dist/client/index.html', 'LICENSE']) {
     assert.ok(files.includes(name), `${name} must be in the tarball`);
   }
   assert.ok(files.some((name) => /^dist\/client\/assets\/.*\.js$/.test(name)));
@@ -50,4 +50,7 @@ test('npm pack builds a clean source snapshot and includes the published CLI and
   const result = await execFileAsync(process.execPath, [path.join(source, 'bin/usage-console.js'), '--version'], { cwd: temp, env, timeout: 5000 });
   const pkg = JSON.parse(fs.readFileSync(path.join(source, 'package.json'), 'utf8'));
   assert.equal(result.stdout.trim(), pkg.version);
+  const help = await execFileAsync(process.execPath, [path.join(source, 'bin/usage-console.js'), 'menubar', '--help'], { cwd: temp, env, timeout: 5000 });
+  assert.match(help.stdout, /usage-console menubar/);
+  assert.match(help.stdout, /--data/);
 });

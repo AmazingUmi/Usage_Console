@@ -83,6 +83,41 @@ npm install -g usage-console@latest
 - 面板区分「已保存」与「进程实际生效」的设置；检测环境变量及 macOS 本机系统代理。端口检测只说明 TCP 是否可连接，不保证代理协议或外网可用。
 - 回环地址始终绕过代理；已有 `NO_PROXY` 规则保留。不自动修改系统代理，不扫描未知端口。
 
+### macOS 原生菜单栏
+
+本项目的原生助手直接在 macOS 菜单栏显示额度圆环，不需要付费开发者证书或打包完整 `.app`。首次使用前安装 macOS Command Line Tools（`xcode-select --install`）；启动时会编译并缓存助手。
+
+使用源码时，先安装下节的开发依赖并构建，再启动本机服务：
+
+```bash
+pnpm build
+node bin/usage-console.js --no-open
+```
+
+另开一个终端启动菜单栏：
+
+```bash
+node bin/usage-console.js menubar
+```
+
+菜单栏助手独立运行，每 60 秒读取本机服务，相同参数重复启动只保留一个实例。安装包含此功能的 npm 版本后，可将上述 `node bin/usage-console.js` 替换为 `usage-console`；已发布的 npm 版本不一定包含此功能。
+
+- 默认只显示第一个账户的 **16pt 空心圆环**。点击「显示账户」可勾选任意组合或选择「全部显示」，并自动保存选择；全部取消时保留一个中性虚线圆环，便于重新选择。
+- 圆弧表示 5 小时 / 7 天窗口中较低的剩余比例；没有这些窗口时，使用其他可见窗口的最低值。未知值用虚线，警告用小圆点标记。
+- 点击圆环查看账户、`5h` / `7d` 剩余百分比和重置倒计时。名称重复时附上邮箱标识；旧读数、登录失效、等待更新和服务离线仍会标记。AGY Claude 窗口的可见性沿用看板设置。
+- 「打开完整看板」打开网页；「刷新显示」重新读取缓存。服务商额度查询遵循看板的刷新间隔（包括手动模式），立即查询请使用完整看板的刷新按钮。本地 Token 记录没有按订阅账户归属统计。
+
+可追加以下选项：
+
+| 选项 | 用途 |
+| --- | --- |
+| `--url http://127.0.0.1:4010` | 连接自定义端口，仅接受本机回环地址 |
+| `--lang en` | 使用英文；默认 `zh` |
+| `--account <account-id>` | 初始显示单个指定账户 |
+| `--accounts all` / `--accounts '["id1","id2"]'` | 初始显示全部账户或指定组合；已保存的菜单选择优先。ID 可从本机 `/api/settings` 的 `accounts` 列表读取 |
+
+**原生助手和 Usage Console 服务都必须保持运行。** 按 Ctrl+C 或关闭服务终端会停止服务；从下拉菜单选择「退出菜单栏」可关闭助手。`menubar --data` 输出助手读取的结构化 JSON，主要用于本机诊断。
+
 ### 源码开发与本地打包
 
 开发建议使用 **Node.js 24**，以及 `package.json` 固定的 **pnpm 10.12.3**：
@@ -158,6 +193,31 @@ Quota refresh defaults to two minutes. Temporary provider failures may retain a 
 - Removing an account deletes its locally saved token; revoke provider-side grants at the provider if needed.
 - The API has **no authentication**. Default binding is loopback, with Host/Origin/Fetch Metadata checks and no CORS. Non-loopback binding requires `--allow-remote` or `CONSOLE_ALLOW_REMOTE=1`; do not expose it publicly.
 - `CONSOLE_PORT` / `CONSOLE_HOST` are supported; generic `PORT` / `HOST` are ignored. `CONSOLE_SETTINGS_PATH` selects another settings file; separate instances also need separate `dataDir` values.
+
+### Native macOS menu bar
+
+The project's native helper displays quota rings directly in the macOS menu bar. Install macOS Command Line Tools (`xcode-select --install`) before the first run; the helper is compiled and cached locally. No paid developer certificate or full `.app` bundle is required.
+
+After installing the source dependencies described below, build and start the local service:
+
+```bash
+pnpm build
+node bin/usage-console.js --no-open
+```
+
+In another terminal, launch the menu bar:
+
+```bash
+node bin/usage-console.js menubar
+```
+
+The helper runs independently, reads the local service every 60 seconds, and keeps one instance per argument set. This feature may not yet be in the published npm version; once installed from a release containing it, replace `node bin/usage-console.js` with `usage-console`.
+
+By default, only the first account has a 16pt hollow ring. Use **Visible accounts** to check any subset or **Show all**; choices are saved. Clearing every checkbox leaves a neutral dashed placeholder so the menu can be reopened. Each arc shows the lower remaining quota of the 5-hour / 7-day windows, falling back to other visible windows when neither exists. Unknown values use a dashed ring; warnings add a dot. The compact click menu shows each account, `5h` / `7d` remaining percentages, and relative reset countdowns. Duplicate names receive an email identifier. AGY Claude visibility follows dashboard settings. **Open dashboard** and **Refresh display** remain available. Provider polling follows dashboard settings, including manual-only mode; use the dashboard to force a refresh. Local Token records are not attributed to subscription accounts.
+
+Append `--url http://127.0.0.1:4010` for a custom loopback port or `--lang en` for English (default: `zh`). Set initial rings with `--account <account-id>`, `--accounts all`, or `--accounts '["id1","id2"]'`; saved menu choices take precedence. Account IDs are in `/api/settings` → `accounts`.
+
+Keep the helper and local service running. Closing the service terminal or pressing Ctrl+C stops the service; **Quit menu bar** closes the helper. `menubar --data` prints the structured JSON consumed by the helper for local diagnostics.
 
 ### Proxy, development, and releasing
 

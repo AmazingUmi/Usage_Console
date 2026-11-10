@@ -20,6 +20,7 @@ Local quota and usage console. Opens a browser after start.
 
 Usage:
   usage-console [--port 3001] [--host 127.0.0.1] [--no-open]
+  usage-console menubar [--url http://127.0.0.1:3001] [--lang zh|en]
 
 Options:
   --port <1-65535>   Listen port (default 3001, or CONSOLE_PORT). PORT is ignored.
@@ -84,6 +85,16 @@ export function openBrowser(url: string): void {
 }
 
 export async function main(argv = process.argv.slice(2)): Promise<void> {
+  if (argv[0] === 'menubar') {
+    try {
+      const { menuBarMain } = await import('./menubar.js');
+      await menuBarMain(argv.slice(1));
+    } catch (err) {
+      console.error((err as Error).message);
+      process.exitCode = 1;
+    }
+    return;
+  }
   let opts: CliOptions;
   try {
     opts = parseArgs(argv);
