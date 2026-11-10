@@ -65,18 +65,6 @@ export function formatCompactDuration(ms: number): string {
   return `${minutes}m`;
 }
 
-/** Remaining time as `45s`, `2m` or `1h`. Words are intentionally not used. */
-export function formatCountdownLeft(ms: number): string {
-  if (!Number.isFinite(ms) || ms <= 0) return '0s';
-  const totalSeconds = Math.ceil(ms / 1000);
-  if (totalSeconds < 60) return `${totalSeconds}s`;
-  const totalMinutes = Math.ceil(totalSeconds / 60);
-  if (totalMinutes < 60) return `${totalMinutes}m`;
-  const hours = Math.floor(totalMinutes / 60);
-  const minutes = totalMinutes % 60;
-  return minutes > 0 ? `${hours}h${minutes}m` : `${hours}h`;
-}
-
 /** Age as one short unit (`5m`, `2h`, `3d`); null when it is under a minute. */
 export function formatAgeShort(ms: number): string | null {
   const minutes = Math.floor(ms / 60000);
@@ -84,4 +72,13 @@ export function formatAgeShort(ms: number): string | null {
   if (minutes < 60) return `${minutes}m`;
   const hours = Math.floor(minutes / 60);
   return hours < 24 ? `${hours}h` : `${Math.floor(hours / 24)}d`;
+}
+
+/** Remaining time as a ticking clock: `1:05`, `0:09`, or `1:02:30` past an hour. */
+export function formatClock(ms: number): string {
+  const totalSeconds = Number.isFinite(ms) && ms > 0 ? Math.ceil(ms / 1000) : 0;
+  const hours = Math.floor(totalSeconds / 3600);
+  const minutes = Math.floor((totalSeconds % 3600) / 60);
+  const seconds = String(totalSeconds % 60).padStart(2, '0');
+  return hours > 0 ? `${hours}:${String(minutes).padStart(2, '0')}:${seconds}` : `${minutes}:${seconds}`;
 }

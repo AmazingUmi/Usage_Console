@@ -2,21 +2,34 @@
 *, *::before, *::after { box-sizing: border-box; }
 [hidden] { display: none !important; }
 
-html { background: var(--bg); scroll-behavior: smooth; scroll-padding-top: 100px; }
+html {
+  background: var(--bg); scroll-behavior: smooth; scroll-padding-top: 100px;
+  scrollbar-color: var(--scrollbar) transparent;
+}
 body {
   margin: 0; background: transparent; color: var(--text);
   font: 14px/1.55 var(--font);
   -webkit-font-smoothing: antialiased; text-rendering: optimizeLegibility;
   font-feature-settings: "tnum" 1;
 }
+::selection { background: color-mix(in srgb, var(--accent) 26%, transparent); }
 
-/* Mesh canvas on a fixed layer: background-attachment:fixed is ignored on iOS Safari. */
+/*
+ * Mesh canvas on a fixed layer: background-attachment:fixed is ignored on iOS Safari.
+ * Four aurora blobs sit around the viewport edges, and three firmer orbs give clear glass shapes to bend as it scrolls.
+ * The layer is static on purpose: animating what sits under backdrop-filter re-blurs every plate each frame.
+ */
 body::before {
   content: ""; position: fixed; inset: 0; z-index: -1; pointer-events: none;
   background:
-    radial-gradient(58rem 40rem at 4% -10%, var(--mesh-a) 0, transparent 60%),
-    radial-gradient(50rem 36rem at 100% 0, var(--mesh-b) 0, transparent 58%),
-    radial-gradient(56rem 42rem at 58% 112%, var(--mesh-c) 0, transparent 58%);
+    radial-gradient(circle 24rem at 16% 30%, var(--orb-a) 0, color-mix(in srgb, var(--orb-a) 55%, transparent) 55%, transparent 100%),
+    radial-gradient(circle 20rem at 86% 26%, var(--orb-b) 0, color-mix(in srgb, var(--orb-b) 55%, transparent) 55%, transparent 100%),
+    radial-gradient(circle 26rem at 64% 88%, var(--orb-c) 0, color-mix(in srgb, var(--orb-c) 55%, transparent) 55%, transparent 100%),
+    radial-gradient(52rem 38rem at 0% 0%, var(--mesh-a) 0, transparent 62%),
+    radial-gradient(46rem 34rem at 100% 8%, var(--mesh-b) 0, transparent 60%),
+    radial-gradient(50rem 36rem at 12% 100%, var(--mesh-c) 0, transparent 60%),
+    radial-gradient(44rem 32rem at 96% 92%, var(--mesh-d) 0, transparent 60%),
+    var(--bg);
 }
 
 h1, h2, h3, h4, p { margin: 0; }
@@ -37,7 +50,8 @@ code { font-family: var(--mono); }
 
 .skip-link {
   position: fixed; left: 16px; top: -80px; z-index: 50;
-  padding: 10px 18px; border-radius: var(--r-pill);
-  background: var(--fill-3); color: var(--text); box-shadow: var(--shadow-pop);
+  padding: 10px 18px; border: 1px solid var(--stroke); border-radius: var(--r-pill);
+  background: var(--fill-3); color: var(--text); box-shadow: var(--ctl-shadow), var(--shadow-pop);
+  -webkit-backdrop-filter: var(--blur-pop); backdrop-filter: var(--blur-pop);
 }
 .skip-link:focus { top: 12px; }

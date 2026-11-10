@@ -3,8 +3,11 @@
   position: sticky; top: 12px; z-index: 20;
   width: calc(100% - 2 * var(--gutter)); max-width: 1176px; margin: 14px auto 0;
   border: 1px solid var(--stroke); border-radius: 30px;
-  background: var(--fill-1);
-  box-shadow: inset 0 1px 0 var(--hairline), 0 0 0 .5px var(--edge), var(--shadow-card);
+  background:
+    var(--grain),
+    linear-gradient(115deg, var(--sheen) 0, transparent 40%),
+    var(--fill-1);
+  box-shadow: var(--glow), 0 0 0 .5px var(--edge), var(--shadow-card);
   -webkit-backdrop-filter: var(--blur); backdrop-filter: var(--blur);
 }
 .header-inner { display: flex; align-items: center; gap: 14px; height: 58px; padding: 0 12px; }
@@ -21,8 +24,54 @@
   transition: background-color .22s var(--ease), color .22s var(--ease), box-shadow .22s var(--ease);
 }
 .main-nav a:hover, .main-nav button:hover { color: var(--text); }
-.main-nav [aria-current] { background: var(--solid); color: var(--text); font-weight: 650; box-shadow: var(--shadow-thumb); }
+.main-nav [aria-current] { background: var(--thumb); color: var(--text); font-weight: 650; box-shadow: var(--shadow-thumb); }
 .header-meta { display: flex; align-items: center; gap: 8px; }
+
+/*
+ * Refresh capsule: the one countdown for every card. The glass pill holds a tinted liquid (--p = share of the
+ * interval left) that drains toward the left edge with a bright leading meniscus; the accent dot holds the refresh
+ * glyph and the clock ticks every second. Ten seconds out it turns amber; while a read runs, a sheen sweeps across.
+ */
+.refresh-clock {
+  --rc: var(--accent);
+  position: relative; isolation: isolate; overflow: hidden;
+  display: inline-flex; align-items: center; gap: 7px; height: 34px; min-width: 96px; padding: 0 14px 0 3px;
+  border: 1px solid var(--stroke); border-radius: var(--r-pill); background: var(--fill-2); color: var(--text);
+  box-shadow: var(--ctl-shadow);
+  font: inherit; cursor: pointer;
+  transition: transform .18s var(--ease), box-shadow .25s var(--ease);
+}
+.refresh-clock:hover { box-shadow: var(--ctl-shadow), 0 4px 16px color-mix(in srgb, var(--rc) 24%, transparent); }
+.refresh-clock:active { transform: scale(.96); }
+.refresh-clock:disabled { cursor: progress; transform: none; }
+/* The liquid starts under the dial's centre, so even the last few seconds still show a sliver past the dial. */
+.rc-liquid {
+  position: absolute; top: 0; bottom: 0; left: 16px; z-index: -1; width: calc(var(--p, 0) * (100% - 16px));
+  border-radius: 0 var(--r-pill) var(--r-pill) 0;
+  background: linear-gradient(90deg, color-mix(in srgb, var(--rc) 14%, transparent), color-mix(in srgb, var(--rc) 30%, transparent));
+  box-shadow: inset -2px 0 0 color-mix(in srgb, var(--rc) 70%, transparent), 4px 0 12px color-mix(in srgb, var(--rc) 28%, transparent);
+  transition: width 1s linear;
+}
+.rc-dot {
+  display: grid; place-items: center; flex: none; width: 26px; height: 26px; border-radius: 50%; color: #fff;
+  background: linear-gradient(180deg, color-mix(in srgb, var(--rc) 62%, #fff), var(--rc));
+  box-shadow: inset 0 1px 0 rgb(255 255 255 / 45%), 0 2px 6px color-mix(in srgb, var(--rc) 38%, transparent);
+}
+.rc-time { min-width: 4ch; font-size: 13px; font-weight: 700; letter-spacing: -.01em; font-variant-numeric: tabular-nums; white-space: nowrap; }
+
+.refresh-clock[data-tone="soon"] { --rc: var(--warning); }
+.refresh-clock[data-tone="soon"] .rc-dot { animation: rc-beat 1s ease-in-out infinite; }
+@keyframes rc-beat { 50% { box-shadow: inset 0 1px 0 rgb(255 255 255 / 45%), 0 0 0 4px color-mix(in srgb, var(--rc) 25%, transparent); } }
+.refresh-clock[data-tone="manual"] { --rc: var(--muted); }
+.refresh-clock[data-tone="manual"] .rc-liquid { display: none; }
+.refresh-clock[data-tone="manual"] .rc-time { color: var(--muted); font-weight: 600; }
+.refresh-clock[data-tone="busy"] .rc-liquid {
+  left: 0; width: 100%; transition: none; box-shadow: none; border-radius: 0;
+  background: linear-gradient(100deg, transparent 30%, color-mix(in srgb, var(--rc) 26%, transparent) 50%, transparent 70%) 0 0 / 220% 100%;
+  animation: rc-sheen 1.3s ease-in-out infinite;
+}
+.refresh-clock[data-tone="busy"] .rc-time { color: var(--muted); font-weight: 600; }
+@keyframes rc-sheen { from { background-position: 120% 0; } to { background-position: -120% 0; } }
 
 .connection-status {
   --dot: var(--good);
@@ -36,22 +85,18 @@
 
 .shell { max-width: 1240px; margin: 0 auto; padding: 24px var(--gutter) 24px; }
 /*
- * Modules. Each page section is one liquid-glass plate (blurred fill, diagonal sheen, bright rim) with its title
- * as a header row. Everything inside the plate is a flat tile, so glass never nests in glass:
- * the page has the header capsule plus one plate per section, and the boundaries are the plates.
+ * Modules. Each page section is a near-clear plate: a whisper of tint, a faint sheen and a specular rim, but no
+ * blur. Leaving the plate unblurred lets every card inside it be real glass over the canvas (a blurred ancestor
+ * would cut the cards off from what is behind it), which is what gives the page its see-through depth.
  */
 .section {
   position: relative; margin-top: 20px; padding: var(--module-pad);
   border: 1px solid var(--stroke); border-radius: var(--r-module);
   background:
+    var(--grain),
     linear-gradient(115deg, var(--sheen) 0, var(--sheen-soft) 30%, transparent 55%, var(--sheen-soft) 100%),
     var(--shell);
-  box-shadow:
-    inset 0 1px 0 var(--hairline),
-    inset 0 -1px 0 var(--rim),
-    0 0 0 .5px var(--edge),
-    var(--shadow-card);
-  -webkit-backdrop-filter: var(--blur-bar); backdrop-filter: var(--blur-bar);
+  box-shadow: var(--glow), 0 0 0 .5px var(--edge), 0 10px 40px rgb(30 36 100 / 6%);
 }
 .section:first-of-type { margin-top: 8px; }
 .section[data-module="quota"] { min-height: var(--h-quota); }
@@ -63,24 +108,49 @@
 }
 /* The section name sits in its own liquid-glass capsule, the same material as the header circles and buttons. */
 .section-heading > .title-row {
-  min-height: var(--heading-size); max-width: 100%;
+  position: relative; min-height: var(--heading-size); max-width: 100%;
   padding: 0 12px 0 15px; border: 1px solid var(--stroke); border-radius: var(--r-card);
   background:
     linear-gradient(115deg, var(--sheen) 0, var(--sheen-soft) 38%, transparent 62%, var(--sheen-soft) 100%),
     var(--fill-2);
-  box-shadow: inset 0 1px 0 var(--hairline), inset 0 -1px 0 var(--rim), 0 0 0 .5px var(--edge), var(--shadow-tile);
+  box-shadow: var(--glow), 0 0 0 .5px var(--edge), var(--shadow-tile);
+  -webkit-backdrop-filter: var(--blur-tile); backdrop-filter: var(--blur-tile);
 }
 .section-heading > .title-row h2 { font-size: 18px; }
 /* 34px tools/segmented controls sit 7px farther in than the 48px title capsule. */
 .section-heading > :not(.title-row) { margin-inline-end: calc(var(--r-card) - 17px); }
-.section-heading > .segmented { min-width: 0; max-width: calc(100% - (var(--r-card) - 17px)); overflow-x: auto; }
+.section-heading > .segmented {
+  min-width: 0; max-width: calc(100% - (var(--r-card) - 17px)); overflow-x: auto;
+  -webkit-backdrop-filter: var(--blur-tile); backdrop-filter: var(--blur-tile);
+}
 .section-heading:last-child { margin-bottom: 0; }
 
-/* Flat tiles inside a module: no blur, a firmer fill, a quiet edge. */
+/* Cards inside a module: the main glass. Clear fill, light blur over the canvas, top-left sheen, inner glow. */
 .section .panel {
-  background: var(--tile); border-color: var(--tile-edge);
-  box-shadow: inset 0 1px 0 var(--hairline), var(--shadow-tile);
-  -webkit-backdrop-filter: none; backdrop-filter: none;
+  background: linear-gradient(160deg, var(--tile-sheen) 0, transparent 42%), var(--tile);
+  border-color: transparent;
+  box-shadow: var(--glow), 0 0 0 .5px var(--edge), var(--shadow-tile);
+  -webkit-backdrop-filter: var(--blur-tile); backdrop-filter: var(--blur-tile);
+}
+
+/*
+ * Specular rim: a 1px gradient ring over the border, bright where light falls (top-left), catching again at the
+ * bottom-right, nearly gone along the sides; it is what makes clear glass read as an object.
+ * The table card scrolls, so a pseudo ring would scroll with it; it gets the same light from inset shadows instead.
+ */
+.app-header, .section, .section .panel:not(.table-scroll), .section .list-group, .scan-hero,
+.modal-card, .help-pop, .chart-tooltip, .section-heading > .title-row { border-color: transparent; }
+:is(.app-header, .section, .section .panel:not(.table-scroll), .section .list-group, .scan-hero,
+  .modal-card, .help-pop, .chart-tooltip, .section-heading > .title-row)::after {
+  content: ""; position: absolute; inset: -1px; padding: 1px; border-radius: inherit; pointer-events: none;
+  background: linear-gradient(135deg, var(--spec-hi) 0%, var(--spec-lo) 28%, transparent 50%, var(--spec-lo) 72%, var(--spec-mid) 100%);
+  -webkit-mask: linear-gradient(#000 0 0) content-box, linear-gradient(#000 0 0);
+  -webkit-mask-composite: xor;
+  mask: linear-gradient(#000 0 0) content-box exclude, linear-gradient(#000 0 0);
+}
+.section .panel.table-scroll {
+  border-color: transparent;
+  box-shadow: inset 1px 1px 0 var(--spec-mid), inset -1px -1px 0 var(--spec-lo), var(--glow), 0 0 0 .5px var(--edge), var(--shadow-tile);
 }
 
 .app-footer { max-width: 1240px; margin: 0 auto; padding: 16px var(--gutter) 44px; color: var(--muted); font-size: 12px; text-align: center; }

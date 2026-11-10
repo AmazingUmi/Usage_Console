@@ -4,6 +4,7 @@ import { QuotaCard } from './components/QuotaCard';
 import { OverviewDashboard } from './components/OverviewDashboard';
 import { UsageDetailSection } from './components/UsageDetailSection';
 import { SettingsPage } from './components/SettingsPage';
+import type { SettingsPane } from './components/SettingsPage';
 import { EditAccountDialog } from './components/EditAccountDialog';
 import { AddAccountDialog } from './components/AddAccountDialog';
 import { useI18n } from './i18n';
@@ -61,6 +62,7 @@ export const App: React.FC = () => {
   const [lastUpdated, setLastUpdated] = useState<number | undefined>(undefined);
   const [settings, setSettings] = useState<ConsoleSettings | null>(null);
   const [settingsOpen, setSettingsOpen] = useState(false);
+  const [settingsPane, setSettingsPane] = useState<{ pane: SettingsPane; at: number } | null>(null);
   const [editingQuota, setEditingQuota] = useState<import('./types').ProviderQuota | null>(null);
   /** Non-null while the add-account dialog is open; `type` pre-selects the account type. */
   const [addAccount, setAddAccount] = useState<{ type?: AccountType } | null>(null);
@@ -233,6 +235,8 @@ export const App: React.FC = () => {
         connectionState={connectionState}
         lastUpdated={lastUpdated}
         settingsOpen={settingsOpen}
+        refreshIntervalSeconds={refreshSeconds}
+        nextRefreshAt={nextRefreshAt}
         onToggleSettings={() => {
           if (settingsOpen) setSettingsOpen(false);
           else openSettings();
@@ -257,7 +261,13 @@ export const App: React.FC = () => {
               <button type="button" className="circle-btn primary" aria-label={t('quota.add')} title={t('quota.add')} onClick={() => setAddAccount({})}>
                 <Icon name="plus" size={16} />
               </button>
-              <button type="button" className="circle-btn" aria-label={t('quota.manage')} title={t('quota.manage')} onClick={() => openSettings('account-settings-title')}>
+              <button
+                type="button"
+                className="circle-btn"
+                aria-label={t('quota.manage')}
+                title={t('quota.manage')}
+                onClick={() => { setSettingsPane({ pane: 'accounts', at: Date.now() }); openSettings('account-settings-title'); }}
+              >
                 <Icon name="settings" size={16} />
               </button>
             </div>
@@ -289,8 +299,6 @@ export const App: React.FC = () => {
                   } : undefined}
                   includeAgyClaude={!hideAgyClaude}
                   thresholds={thresholds}
-                  refreshIntervalSeconds={refreshSeconds}
-                  nextRefreshAt={nextRefreshAt}
                   onEdit={setEditingQuota}
                   onSignIn={(type) => setAddAccount({ type })}
                   onRetry={handleRefresh}
@@ -338,6 +346,7 @@ export const App: React.FC = () => {
         />
 
         <SettingsPage
+          paneRequest={settingsPane}
           open={settingsOpen}
           onToggle={() => setSettingsOpen((value) => !value)}
           settings={settings}

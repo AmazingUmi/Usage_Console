@@ -1,8 +1,7 @@
-import React from 'react';
+import React, { useId } from 'react';
 import type { AccountType, ProviderQuota, QuotaWindow } from '../types';
 import { collectQuotaWindows } from '../lib/quota';
-import { CountdownGauge } from './CountdownGauge';
-import { formatCompactDuration, formatCountdownLeft } from '../lib/format';
+import { formatCompactDuration } from '../lib/format';
 import { useNow } from '../lib/useNow';
 import { useI18n } from '../i18n';
 import { Icon } from './Icon';
@@ -31,10 +30,6 @@ interface QuotaCardProps {
   onEdit?: (quota: ProviderQuota) => void;
   onSignIn?: (type: AccountType) => void;
   onRetry?: () => void;
-  /** Automatic quota refresh interval. 0 means manual only, so there is no countdown. */
-  refreshIntervalSeconds?: number;
-  /** When the next automatic refresh is due. */
-  nextRefreshAt?: number | null;
 }
 
 type Translate = ReturnType<typeof useI18n>['t'];
@@ -59,26 +54,22 @@ function windowLabel(label: string, t: Translate): string {
   return text.replace(/ Limit Remaining$/i, '').replace(/ limit/i, '');
 }
 
-/** Countdown to the next automatic quota refresh, beside Edit. The ring is time left, not time elapsed. */
-const RefreshCountdown: React.FC<{ intervalSeconds: number; nextRefreshAt: number }> = ({ intervalSeconds, nextRefreshAt }) => {
-  const { t, locale } = useI18n();
-  const now = useNow(1000);
-  const total = intervalSeconds * 1000;
-  const remaining = nextRefreshAt - now;
-  const progress = total > 0 ? Math.min(1, Math.max(0, remaining / total)) : 0;
-  const tone = remaining <= 0 ? 'old' : progress <= 0.25 ? 'aging' : 'fresh';
-  return (
-    <CountdownGauge
-      label={formatCountdownLeft(remaining)}
-      progress={progress}
-      title={t('quota.nextRefresh', { time: new Date(nextRefreshAt).toLocaleTimeString(locale) })}
-      tone={tone}
-    />
-  );
-};
+/*
+ * Liquid surface for the battery cell, in a 100×100 box stretched over the tank. Two 50-unit wave periods repeat out
+ * to x=200 so the path can slide left by one period forever without showing an edge.
+ */
+const WAVE_FRONT = 'M0 0 Q12.5 -3.2 25 0 T50 0 T75 0 T100 0 T125 0 T150 0 T175 0 T200 0 V120 H0 Z';
+/** The bright meniscus line along the front wave's crest (open path, so no edges are stroked). */
+const WAVE_CREST = 'M0 0 Q12.5 -3.2 25 0 T50 0 T75 0 T100 0 T125 0 T150 0 T175 0 T200 0';
+const WAVE_BACK = 'M0 -1.6 Q12.5 1.8 25 -1.6 T50 -1.6 T75 -1.6 T100 -1.6 T125 -1.6 T150 -1.6 T175 -1.6 T200 -1.6 V120 H0 Z';
 
+/**
+ * Quota window as a glass battery cell: a frosted tube with a terminal cap, a liquid level with two drifting waves,
+ * cylindrical gloss on top and a soft glow under the liquid. The level fills up from empty on first paint.
+ */
 const Battery: React.FC<{ window: QuotaWindow; thresholds: BatteryThresholds; now: number }> = ({ window: win, thresholds, now }) => {
   const { t, locale } = useI18n();
+  const gradId = `lq-${useId().replace(/:/g, '')}`;
   const known = Number.isFinite(win.remainingPercent);
   const percent = known ? Math.min(100, Math.max(0, win.remainingPercent)) : 0;
   const level = !known ? 'unknown' : percent <= thresholds.low ? 'low' : percent <= thresholds.warning ? 'warning' : 'normal';
@@ -88,9 +79,30 @@ const Battery: React.FC<{ window: QuotaWindow; thresholds: BatteryThresholds; no
   return (
     <div className="gauge-row" data-level={level} style={{ '--v': percent } as React.CSSProperties}>
       <span className="gauge-label" title={label}>{label}</span>
-      <div className="battery-stage">
-        <div className="battery" role="img" aria-label={t('quota.remaining', { label, value })}>
-          <i className="battery-fill" style={{ height: `${percent}%` }} />
+      <div className="cell-stage">
+        <div className="cell" role="img" aria-label={t('quota.remaining', { label, value })}>
+          <span className="cell-cap" aria-hidden="true" />
+          <span className="cell-tank" aria-hidden="true">
+            {known && percent > 0 && (
+              <svg className="cell-liquid" viewBox="0 0 100 100" preserveAspectRatio="none">
+                <defs>
+                  <linearGradient id={gradId} x1="0" y1="0" x2="0" y2="1">
+                    <stop className="lq-top" offset="0" />
+                    <stop className="lq-bottom" offset="0.7" />
+                  </linearGradient>
+                </defs>
+                <g className="cell-level" style={{ '--lvl': `${100 - percent}px` } as React.CSSProperties}>
+                  <path className="wave-back" d={WAVE_BACK} />
+                  <g className="wave-front">
+                    <path d={WAVE_FRONT} fill={`url(#${gradId})`} />
+                    <path className="wave-crest" d={WAVE_CREST} />
+                  </g>
+                </g>
+              </svg>
+            )}
+            <span className="cell-ticks" />
+            <span className="cell-gloss" />
+          </span>
         </div>
       </div>
       <span className="gauge-val">{known ? Math.round(percent) : '—'}{known && <small>%</small>}</span>
@@ -110,8 +122,6 @@ export const QuotaCard: React.FC<QuotaCardProps> = ({
   onEdit,
   onSignIn,
   onRetry,
-  refreshIntervalSeconds = 0,
-  nextRefreshAt,
 }) => {
   const { t, locale } = useI18n();
   const now = useNow();
@@ -172,9 +182,6 @@ export const QuotaCard: React.FC<QuotaCardProps> = ({
           <p title={subtitle}>{subtitle || t('quota.official')}</p>
         </div>
         <div className="card-tools">
-          {!loading && refreshIntervalSeconds > 0 && nextRefreshAt != null && (
-            <RefreshCountdown intervalSeconds={refreshIntervalSeconds} nextRefreshAt={nextRefreshAt} />
-          )}
           {onEdit && quota.accountCardId && (
             <button type="button" className="tool-circle" aria-label={t('quota.edit')} title={t('quota.edit')} onClick={() => onEdit(quota)}>
               <Icon name="edit" size={13} />

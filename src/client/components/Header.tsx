@@ -3,6 +3,8 @@ import type { ConnectionState } from '../types';
 import { useI18n } from '../i18n';
 import type { ThemePref } from '../theme';
 import { useTheme } from '../theme';
+import { formatClock } from '../lib/format';
+import { useNow } from '../lib/useNow';
 import { Icon } from './Icon';
 
 interface HeaderProps {
@@ -12,6 +14,10 @@ interface HeaderProps {
   connectionState?: ConnectionState;
   settingsOpen: boolean;
   onToggleSettings: () => void;
+  /** Automatic quota refresh interval in seconds; 0 is manual only. */
+  refreshIntervalSeconds: number;
+  /** When the server reads quota next; null when manual or not scheduled yet. */
+  nextRefreshAt: number | null;
 }
 
 const NAV_ITEMS = [
@@ -52,6 +58,50 @@ function useActiveSection(): string {
   return active;
 }
 
+/**
+ * One refresh capsule for the whole console: every card shares the server's quota schedule, so the countdown lives
+ * here once. The capsule's glass fills with a tinted "liquid" that drains as the next automatic read approaches,
+ * the clock ticks every second, and pressing it refreshes now. While a read is due or running, the liquid turns into
+ * a moving sheen.
+ */
+const RefreshClock: React.FC<{
+  intervalSeconds: number;
+  nextRefreshAt: number | null;
+  isRefreshing: boolean;
+  onRefresh: () => void;
+}> = ({ intervalSeconds, nextRefreshAt, isRefreshing, onRefresh }) => {
+  const { t, locale } = useI18n();
+  const now = useNow(1000);
+  const auto = intervalSeconds > 0 && nextRefreshAt != null;
+  const remaining = auto ? nextRefreshAt - now : 0;
+  const progress = auto ? Math.min(1, Math.max(0, remaining / (intervalSeconds * 1000))) : 0;
+  const busy = isRefreshing || (auto && remaining <= 0);
+  const tone = busy ? 'busy' : !auto ? 'manual' : remaining <= 10_000 ? 'soon' : 'fresh';
+  const text = busy ? t('header.refreshing') : auto ? formatClock(remaining) : t('header.manual');
+  const next = auto ? t('quota.nextRefresh', { time: new Date(nextRefreshAt).toLocaleTimeString(locale) }) : t('header.manualHint');
+  const label = `${isRefreshing ? t('header.refreshing') : t('header.refresh')} · ${next}`;
+
+  return (
+    <button
+      type="button"
+      className="refresh-clock"
+      data-tone={tone}
+      onClick={onRefresh}
+      disabled={isRefreshing}
+      aria-busy={isRefreshing}
+      aria-label={label}
+      title={label}
+      style={{ '--p': progress } as React.CSSProperties}
+    >
+      <span className="rc-liquid" aria-hidden="true" />
+      <span className="rc-dot" aria-hidden="true">
+        <Icon name="refresh" size={13} className={busy ? 'is-spinning' : undefined} />
+      </span>
+      <span className="rc-time" aria-hidden="true">{text}</span>
+    </button>
+  );
+};
+
 export const Header: React.FC<HeaderProps> = ({
   onRefresh,
   isRefreshing,
@@ -59,6 +109,8 @@ export const Header: React.FC<HeaderProps> = ({
   connectionState = 'connecting',
   settingsOpen,
   onToggleSettings,
+  refreshIntervalSeconds,
+  nextRefreshAt,
 }) => {
   const active = useActiveSection();
   const { t, locale } = useI18n();
@@ -106,17 +158,12 @@ export const Header: React.FC<HeaderProps> = ({
           >
             <Icon name={THEME_ICON[pref]} size={16} />
           </button>
-          <button
-            type="button"
-            className="header-circle"
-            onClick={onRefresh}
-            disabled={isRefreshing}
-            aria-busy={isRefreshing}
-            aria-label={isRefreshing ? t('header.refreshing') : t('header.refresh')}
-            title={isRefreshing ? t('header.refreshing') : t('header.refresh')}
-          >
-            <Icon name="refresh" size={16} className={isRefreshing ? 'is-spinning' : undefined} />
-          </button>
+          <RefreshClock
+            intervalSeconds={refreshIntervalSeconds}
+            nextRefreshAt={nextRefreshAt}
+            isRefreshing={isRefreshing}
+            onRefresh={onRefresh}
+          />
         </div>
       </div>
     </header>

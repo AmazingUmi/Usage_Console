@@ -29,8 +29,8 @@
 .chart-hover-band { fill: var(--text); fill-opacity: .05; }
 .chart-tooltip {
   position: absolute; top: 4px; z-index: 3; min-width: 190px; padding: 11px 13px;
-  border: 1px solid var(--stroke); border-radius: 16px; background: var(--fill-3);
-  box-shadow: inset 0 1px 0 var(--hairline), var(--shadow-pop);
+  border: 1px solid transparent; border-radius: 16px; background: var(--grain), var(--fill-3);
+  box-shadow: var(--glow), 0 0 0 .5px var(--edge), var(--shadow-pop);
   -webkit-backdrop-filter: var(--blur-pop); backdrop-filter: var(--blur-pop);
   pointer-events: none; font-size: 12px;
 }
@@ -59,11 +59,13 @@
 .table-scroll { overflow-x: auto; }
 .data-table { width: 100%; min-width: 760px; font-size: 13px; text-align: left; }
 .data-table th, .data-table td { padding: 9px 16px; border-bottom: 1px solid var(--border); white-space: nowrap; }
-.data-table th {
-  position: sticky; top: 0; z-index: 1; color: var(--muted); font-size: 12px; font-weight: 550;
-  background: color-mix(in srgb, var(--solid) 86%, transparent);
-  -webkit-backdrop-filter: blur(10px); backdrop-filter: blur(10px);
+/* The whole header row is one sticky glass strip (per-cell blur would show seams between the cells). */
+.data-table thead {
+  position: sticky; top: 0; z-index: 1;
+  background: var(--thead);
+  -webkit-backdrop-filter: var(--blur-scrim); backdrop-filter: var(--blur-scrim);
 }
+.data-table th { color: var(--muted); font-size: 12px; font-weight: 550; }
 .data-table td.num, .data-table th.num { text-align: right; }
 .data-table td.strong { font-weight: 600; }
 .data-table td.muted { color: var(--muted); }
@@ -81,6 +83,11 @@
 @media (max-width: 1080px) {
   .dash-row { grid-template-columns: 1fr; }
   .stat-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  /* Stacked: the breakdown sits under the chart, so it sizes to its rows instead of leaving an empty slab. */
+  .breakdown-list { height: auto; max-height: var(--breakdown-h); }
+}
+@media (max-width: 980px) {
+  .panel.table-scroll { height: auto; max-height: var(--detail-table-h); }
 }
 @media (max-width: 520px) {
   .stat-grid { gap: 10px; }

@@ -1,10 +1,22 @@
 /*
- * Design tokens — iOS frosted glass.
+ * Design tokens — "Indigo Mist" frosted glass.
  *
- * Glass is three fill levels over one mesh-gradient canvas:
- *   --fill-1  cards and the header capsule   (most transparent, blurred)
- *   --fill-2  chips, buttons, segmented thumb (sits on a card, no extra blur)
- *   --fill-3  popovers, tooltips, modals      (most opaque, blurred)
+ * Colour rule: one hue family, one accent, colour only where it means something.
+ *   - Canvas, glass tints and neutrals all lean the same cool indigo, so nothing fights the content.
+ *   - --accent (indigo) is the only decorative colour: primary actions, selection, charts, healthy quota levels.
+ *   - --good / --warning / --danger appear only as status (connection, low quota, errors), never as decoration.
+ *   - Provider colours are identity marks, limited to the small letter avatars.
+ *
+ * Liquid glass, in the spirit of current iOS / macOS: clear surfaces with a light blur, boosted saturation, and
+ * light caught on the edges (a specular rim brightest top-left, an inner glow) rather than milky fills.
+ *   --fill-1  header capsule, standalone panels   (clear, blurred)
+ *   --tile    cards inside a module                (clear, blurred; these are the main glass)
+ *   --shell   module plates                        (almost invisible: a rim and a whisper of tint, no blur)
+ *   --fill-2  chips, buttons, inputs               (sit on glass, no extra blur)
+ *   --fill-3  popovers, tooltips, modals           (the most opaque, so text stays readable over anything)
+ *
+ * Module plates do not blur so that cards inside them can: a backdrop-filter ancestor would wall the cards off from
+ * the canvas. The canvas carries four aurora blobs so there is always colour for the glass to bend.
  */
 :root {
   color-scheme: light;
@@ -12,72 +24,95 @@
   --mono: ui-monospace, "SF Mono", Menlo, Consolas, monospace;
 
   /* canvas */
-  --bg: #edf0f6;
-  --mesh-a: #cfe3f2;
-  --mesh-b: #dcd6f4;
-  --mesh-c: #c8ece6;
+  --bg: #e6eaf8;
+  --mesh-a: #9fb1ff;
+  --mesh-b: #c7b8fb;
+  --mesh-c: #a3cbfa;
+  --mesh-d: #c4cdfb;
+  /* Orbs: three firmer shapes in the canvas, so clear glass has something visible to bend as the page scrolls. */
+  --orb-a: #8b9fff;
+  --orb-b: #b7a3fb;
+  --orb-c: #86bdf6;
 
   /* glass */
-  --fill-1: rgb(255 255 255 / 55%);
-  --fill-2: rgb(255 255 255 / 72%);
-  --fill-3: rgb(255 255 255 / 90%);
-  --fill-inset: rgb(120 140 170 / 12%);
-  --hairline: rgb(255 255 255 / 85%);
-  --stroke: rgb(255 255 255 / 65%);
-  --edge: rgb(90 110 150 / 18%);
-  --blur: blur(28px) saturate(180%);
-  --blur-pop: blur(36px) saturate(190%);
-  --blur-bar: blur(22px) saturate(210%);
+  --fill-1: rgb(255 255 255 / 26%);
+  --fill-2: rgb(255 255 255 / 42%);
+  --fill-3: rgb(255 255 255 / 66%);
+  --fill-inset: rgb(108 118 178 / 11%);
+  --hairline: rgb(255 255 255 / 80%);
+  --stroke: rgb(255 255 255 / 40%);
+  --edge: rgb(78 88 150 / 14%);
+  --blur: blur(16px) saturate(190%) brightness(1.03);
+  --blur-tile: blur(12px) saturate(170%);
+  --blur-pop: blur(26px) saturate(190%) brightness(1.04);
+  --blur-scrim: blur(8px) saturate(140%);
   /* liquid-glass highlights: a diagonal sheen across the surface and a bright lower rim */
-  --sheen: rgb(255 255 255 / 42%);
-  --sheen-soft: rgb(255 255 255 / 14%);
-  --rim: rgb(255 255 255 / 55%);
+  --sheen: rgb(255 255 255 / 30%);
+  --sheen-soft: rgb(255 255 255 / 8%);
+  --rim: rgb(255 255 255 / 45%);
+  /* Specular edge: a 1px gradient ring, brightest where the light hits (top-left), a second catch bottom-right. */
+  --spec-hi: rgb(255 255 255 / 95%);
+  --spec-mid: rgb(255 255 255 / 55%);
+  --spec-lo: rgb(255 255 255 / 12%);
+  --glow: inset 0 0 22px rgb(255 255 255 / 16%);
+  /* Frost: a tiny tiled fractal-noise texture layered on blurred surfaces. */
+  --grain: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='140' height='140'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='.9' numOctaves='2' stitchTiles='stitch'/%3E%3CfeColorMatrix values='0 0 0 0 .5 0 0 0 0 .5 0 0 0 0 .5 0 0 0 .03 0'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)'/%3E%3C/svg%3E");
+  /* Glass controls (buttons, chips, circles, inputs) share one edge treatment. */
+  --ctl-shadow: inset 0 1px 0 var(--hairline), inset 0 -1px 0 rgb(255 255 255 / 14%), 0 0 0 .5px var(--edge), 0 1px 3px rgb(30 36 100 / 7%);
 
   /* modules: one glass plate per page section, holding flat tiles (no blur inside a blurred plate) */
-  --shell: rgb(255 255 255 / 32%);
-  --tile: rgb(255 255 255 / 64%);
-  --tile-edge: rgb(90 110 150 / 14%);
-  --shadow-tile: 0 1px 3px rgb(30 50 90 / 8%);
-  --shadow-card: 0 8px 30px rgb(40 60 110 / 10%), 0 1px 2px rgb(40 60 110 / 8%);
-  --shadow-pop: 0 18px 48px rgb(20 30 60 / 22%);
-  --shadow-thumb: 0 1px 4px rgb(20 40 90 / 16%), 0 0 0 .5px rgb(20 40 90 / 6%);
+  --shell: rgb(255 255 255 / 6%);
+  --tile: rgb(255 255 255 / 22%);
+  --tile-sheen: rgb(255 255 255 / 24%);
+  --tile-edge: rgb(78 88 150 / 13%);
+  --shadow-tile: 0 1px 3px rgb(34 40 100 / 8%);
+  --shadow-card: 0 8px 30px rgb(44 52 120 / 10%), 0 1px 2px rgb(44 52 120 / 8%);
+  --shadow-pop: 0 18px 48px rgb(24 28 70 / 22%);
+  --shadow-thumb: 0 1px 4px rgb(30 36 100 / 16%), 0 0 0 .5px rgb(30 36 100 / 6%);
+  --scrim: rgb(40 46 100 / 18%);
 
   /* semantic aliases used by components */
   --surface: var(--fill-1);
   --surface-2: var(--fill-inset);
-  --hover: rgb(120 140 170 / 14%);
+  --hover: rgb(108 118 178 / 13%);
   --border: var(--edge);
-  --border-strong: rgb(90 110 150 / 28%);
-  --track: rgb(120 140 170 / 18%);
+  --border-strong: rgb(78 88 150 / 28%);
+  --track: rgb(108 118 178 / 17%);
   --solid: #ffffff;
+  /* Selected thumb of segmented controls and the nav: an opaque pill in light, a lit glass pill in dark. */
+  --thumb: rgb(255 255 255 / 88%);
+  --thead: rgb(255 255 255 / 52%);
+  --scrollbar: rgb(78 88 150 / 30%);
 
-  --text: #141a26;
-  --text-2: #2c3546;
-  --muted: #5a6578;
-  --faint: #8792a5;
+  --text: #141729;
+  --text-2: #2b3050;
+  --muted: #5d6382;
+  --faint: #8b90ad;
 
-  --accent: #0a84ff;
-  --accent-hi: #4aa8ff;
-  --accent-hover: #0071e3;
-  --accent-soft: rgb(10 132 255 / 12%);
+  --accent: #4c62ee;
+  --accent-hi: #7a8cff;
+  --accent-hover: #3b4fd6;
+  --accent-soft: rgb(76 98 238 / 12%);
   --accent-contrast: #ffffff;
 
-  /* status — iOS system colours, always paired with a label */
-  --good: #28b44a;
-  --warning: #ff9500;
-  --danger: #ff3b30;
+  /* status — muted to sit with the indigo, always paired with a label */
+  --good: #1f9e6e;
+  --warning: #e48f0c;
+  --danger: #e2474e;
+  /* Healthy quota is not "status", so it takes the accent; only warning and low levels get status colours. */
+  --level-ok: var(--accent);
 
-  /* providers: OpenAI green · Claude terracotta · Grok graphite · Antigravity azure */
-  --p-codex: #10a37f;
-  --p-claude: #d97757;
-  --p-grok: #3a4150;
-  --p-agy: #2f7df4;
+  /* providers (identity marks on the small letter avatars only): OpenAI · Claude · Grok · Antigravity */
+  --p-codex: #2f9a7c;
+  --p-claude: #c97a5c;
+  --p-grok: #4a5066;
+  --p-agy: #4f7cf0;
 
-  /* chart series (validated categorical order: blue, orange) */
-  --series-1: #2a78d6;
-  --series-2: #eb6834;
-  --series-3: #8b5cf6;
-  --series-4: #22a45d;
+  /* chart series: an analogous indigo ramp (deep → pale for stacked bars, then sky and violet for extra lines) */
+  --series-1: #4c62ee;
+  --series-2: #a2afff;
+  --series-3: #3a9fe0;
+  --series-4: #9a82f2;
 
   --r-card: 24px;
   --r-inner: 16px;
@@ -87,7 +122,6 @@
   --module-inset: calc(var(--module-pad) + 1px);
   --r-module: calc(var(--r-card) + var(--module-inset));
   --heading-size: calc(2 * var(--r-card));
-  --settings-pad: calc(var(--r-card) - var(--r-inner) - 1px);
   --r-pill: 999px;
   --ease: cubic-bezier(.32, .72, 0, 1);
   --gutter: 32px;
@@ -107,56 +141,73 @@
 /* Dark is chosen by data-theme on <html> (set from the user's choice or the system setting). */
 :root[data-theme="dark"] {
   color-scheme: dark;
-  --bg: #090d14;
-  --mesh-a: #12394a;
-  --mesh-b: #2c2656;
-  --mesh-c: #0e3d3b;
+  --bg: #090b1a;
+  --mesh-a: #2a3a98;
+  --mesh-b: #3e3094;
+  --mesh-c: #194a8c;
+  --mesh-d: #242c6c;
+  --orb-a: #3a4fd0;
+  --orb-b: #5a3fc0;
+  --orb-c: #1f63b8;
 
-  --fill-1: rgb(30 38 54 / 55%);
-  --fill-2: rgb(255 255 255 / 9%);
-  --fill-3: rgb(28 36 50 / 92%);
+  --fill-1: rgb(34 40 74 / 30%);
+  --fill-2: rgb(255 255 255 / 8%);
+  --fill-3: rgb(22 26 50 / 66%);
   --fill-inset: rgb(255 255 255 / 6%);
-  --hairline: rgb(255 255 255 / 14%);
-  --sheen: rgb(255 255 255 / 11%);
-  --sheen-soft: rgb(255 255 255 / 3%);
-  --rim: rgb(255 255 255 / 12%);
-  --stroke: rgb(255 255 255 / 10%);
-  --edge: rgb(255 255 255 / 11%);
+  --hairline: rgb(255 255 255 / 16%);
+  --sheen: rgb(255 255 255 / 8%);
+  --sheen-soft: rgb(255 255 255 / 2%);
+  --rim: rgb(255 255 255 / 10%);
+  --stroke: rgb(255 255 255 / 8%);
+  --edge: rgb(255 255 255 / 9%);
+  --blur: blur(16px) saturate(170%) brightness(.92);
+  --blur-tile: blur(14px) saturate(165%) brightness(.94);
+  --blur-pop: blur(26px) saturate(170%) brightness(.9);
+  --spec-hi: rgb(255 255 255 / 42%);
+  --spec-mid: rgb(255 255 255 / 20%);
+  --spec-lo: rgb(255 255 255 / 5%);
+  --glow: inset 0 0 22px rgb(255 255 255 / 4%);
+  --ctl-shadow: inset 0 1px 0 var(--hairline), 0 0 0 .5px var(--edge), 0 1px 3px rgb(0 0 0 / 25%);
   --shadow-card: 0 8px 32px rgb(0 0 0 / 35%);
   --shadow-pop: 0 18px 48px rgb(0 0 0 / 55%);
-  --shadow-thumb: 0 1px 4px rgb(0 0 0 / 40%);
+  --shadow-thumb: 0 1px 4px rgb(0 0 0 / 40%), inset 0 1px 0 rgb(255 255 255 / 14%);
+  --scrim: rgb(4 5 16 / 45%);
 
   --hover: rgb(255 255 255 / 9%);
   --border-strong: rgb(255 255 255 / 18%);
   --track: rgb(255 255 255 / 10%);
-  --solid: #1b2331;
+  --solid: #1b1e35;
+  --thumb: rgb(255 255 255 / 18%);
+  --thead: rgb(22 25 48 / 55%);
+  --scrollbar: rgb(255 255 255 / 18%);
 
-  --text: #eef2f8;
-  --text-2: #cdd4df;
-  --muted: #9ba8bc;
-  --faint: #6f7b8f;
+  --text: #eef0fb;
+  --text-2: #cdd1e8;
+  --muted: #9ba1c2;
+  --faint: #6d7396;
 
-  --accent: #0a84ff;
-  --accent-hi: #5eb1ff;
-  --accent-hover: #409cff;
-  --accent-soft: rgb(10 132 255 / 18%);
+  --accent: #6f86ff;
+  --accent-hi: #9aaaff;
+  --accent-hover: #8597ff;
+  --accent-soft: rgb(111 134 255 / 20%);
 
-  --good: #32d74b;
-  --warning: #ff9f0a;
-  --danger: #ff453a;
+  --good: #3dcc92;
+  --warning: #f4ae3d;
+  --danger: #ff6b70;
 
-  --p-codex: #34c79e;
-  --p-claude: #e8916f;
-  --p-grok: #c9cfd9;
-  --p-agy: #6aa6ff;
+  --p-codex: #4fc3a1;
+  --p-claude: #e09a7e;
+  --p-grok: #c4c8da;
+  --p-agy: #7ea2ff;
 
-  --series-1: #3987e5;
-  --series-2: #d95926;
-  --series-3: #a78bfa;
-  --series-4: #34d399;
+  --series-1: #6f86ff;
+  --series-2: #b8c2ff;
+  --series-3: #5bbcf2;
+  --series-4: #b6a1ff;
 
-  --shell: rgb(18 26 40 / 46%);
-  --tile: rgb(255 255 255 / 6%);
+  --shell: rgb(255 255 255 / 2.5%);
+  --tile: rgb(255 255 255 / 5%);
+  --tile-sheen: rgb(255 255 255 / 5%);
   --tile-edge: rgb(255 255 255 / 9%);
   --shadow-tile: 0 1px 3px rgb(0 0 0 / 30%);
 }

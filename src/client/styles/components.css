@@ -14,24 +14,30 @@
 .panel-head .hint { margin-top: 2px; }
 
 /* ===== Buttons (pill, level 2) ===== */
-.btn, button.btn {
+/* A bare class selector on purpose: `button.btn` would outrank the .btn-primary / .btn-ghost / .btn-sm modifiers. */
+.btn {
   display: inline-flex; align-items: center; justify-content: center; gap: 6px;
   height: 36px; padding: 0 16px;
   border: 1px solid var(--stroke); border-radius: var(--r-pill);
   background: var(--fill-2); color: var(--text);
-  box-shadow: inset 0 1px 0 var(--hairline), 0 0 0 .5px var(--edge);
+  box-shadow: var(--ctl-shadow);
   font-size: 13px; font-weight: 600; white-space: nowrap; cursor: pointer;
-  transition: background-color .18s var(--ease), transform .18s var(--ease), color .18s var(--ease);
+  transition: background-color .18s var(--ease), transform .18s var(--ease), color .18s var(--ease), box-shadow .18s var(--ease);
 }
 .btn:hover { background: var(--fill-3); }
 .btn:active { transform: scale(.97); }
 .btn:disabled { opacity: .55; cursor: not-allowed; transform: none; }
-.btn-primary {
+/* Accent controls are tinted glass: a lit gradient with the same top highlight as every other control. */
+.btn-primary, .circle-btn.primary {
   border-color: transparent; color: var(--accent-contrast);
   background: linear-gradient(180deg, var(--accent-hi), var(--accent));
   box-shadow: inset 0 1px 0 rgb(255 255 255 / 35%), 0 2px 10px color-mix(in srgb, var(--accent) 32%, transparent);
 }
-.btn-primary:hover { background: linear-gradient(180deg, var(--accent-hi), var(--accent-hover)); }
+.btn-primary:hover, .circle-btn.primary:hover {
+  background: linear-gradient(180deg, var(--accent-hi), var(--accent-hover)); color: var(--accent-contrast);
+  box-shadow: inset 0 1px 0 rgb(255 255 255 / 35%), 0 4px 16px color-mix(in srgb, var(--accent) 40%, transparent);
+}
+.btn-primary:disabled { box-shadow: inset 0 1px 0 rgb(255 255 255 / 35%); }
 .btn-ghost { border-color: transparent; background: transparent; box-shadow: none; color: var(--muted); }
 .btn-ghost:hover { background: var(--hover); color: var(--text); }
 .btn-danger { color: var(--danger); }
@@ -55,7 +61,7 @@
   transition: background-color .22s var(--ease), color .22s var(--ease), box-shadow .22s var(--ease);
 }
 .segmented button:hover { color: var(--text); }
-.segmented button[aria-pressed="true"] { background: var(--solid); color: var(--text); font-weight: 650; box-shadow: var(--shadow-thumb); }
+.segmented button[aria-pressed="true"] { background: var(--thumb); color: var(--text); font-weight: 650; box-shadow: var(--shadow-thumb); }
 .segmented .count { margin-left: 4px; color: var(--faint); font-weight: 500; }
 
 /* ===== Inputs ===== */
@@ -63,9 +69,17 @@
   width: 100%; min-width: 0; height: 38px; padding: 0 14px;
   border: 1px solid var(--stroke); border-radius: var(--r-pill);
   background: var(--fill-2); color: var(--text); font-size: 13px;
-  box-shadow: inset 0 1px 0 var(--hairline), 0 0 0 .5px var(--edge);
-  transition: box-shadow .15s var(--ease);
+  box-shadow: var(--ctl-shadow);
+  transition: box-shadow .15s var(--ease), background-color .15s var(--ease);
 }
+.input:hover:not(:focus, [readonly], :disabled) { background-color: var(--fill-3); }
+/* Selects drop the native bezel so they are the same glass pill as inputs, with a drawn chevron. */
+select.input {
+  appearance: none; -webkit-appearance: none; padding-right: 36px; cursor: pointer;
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 24 24' fill='none' stroke='%238792a5' stroke-width='2.6' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='m6 9 6 6 6-6'/%3E%3C/svg%3E");
+  background-repeat: no-repeat; background-position: right 14px center;
+}
+select.input option { background: var(--solid); color: var(--text); }
 .input.mono { font: 12.5px var(--mono); }
 textarea.input { height: auto; padding: 10px 14px; border-radius: 16px; line-height: 1.5; resize: vertical; }
 .input:focus { outline: 0; box-shadow: 0 0 0 3px var(--accent-soft), 0 0 0 1px var(--accent); }
@@ -91,7 +105,7 @@ textarea.input { height: auto; padding: 10px 14px; border-radius: 16px; line-hei
 .chip {
   display: inline-flex; align-items: center; gap: 6px; height: 24px; padding: 0 10px;
   border: 1px solid var(--stroke); border-radius: var(--r-pill); background: var(--fill-2);
-  box-shadow: inset 0 1px 0 var(--hairline), 0 0 0 .5px var(--edge);
+  box-shadow: var(--ctl-shadow);
   color: var(--text-2); font-size: 11.5px; font-weight: 600; white-space: nowrap;
 }
 
@@ -117,7 +131,7 @@ textarea.input { height: auto; padding: 10px 14px; border-radius: 16px; line-hei
 .help-tip {
   display: inline-grid; place-items: center; flex: none; width: 22px; height: 22px; padding: 0;
   border: 1px solid var(--stroke); border-radius: 50%; background: var(--fill-2); color: var(--muted);
-  box-shadow: inset 0 1px 0 var(--hairline), 0 0 0 .5px var(--edge);
+  box-shadow: var(--ctl-shadow);
   font-size: 12px; font-weight: 700; line-height: 1; cursor: help;
   transition: background-color .18s var(--ease), color .18s var(--ease), transform .18s var(--ease);
 }
@@ -125,8 +139,8 @@ textarea.input { height: auto; padding: 10px 14px; border-radius: 16px; line-hei
 .help-tip:active { transform: scale(.92); }
 .help-pop {
   position: fixed; z-index: 80; padding: 10px 14px;
-  border: 1px solid var(--stroke); border-radius: 16px; background: var(--fill-3); color: var(--text-2);
-  box-shadow: inset 0 1px 0 var(--hairline), 0 0 0 .5px var(--edge), var(--shadow-pop);
+  border: 1px solid transparent; border-radius: 16px; background: var(--grain), var(--fill-3); color: var(--text-2);
+  box-shadow: var(--glow), 0 0 0 .5px var(--edge), var(--shadow-pop);
   -webkit-backdrop-filter: var(--blur-pop); backdrop-filter: var(--blur-pop);
   font-size: 12.5px; font-weight: 450; line-height: 1.6; white-space: normal; overflow-wrap: anywhere;
   overflow: auto; scrollbar-width: thin;
@@ -140,29 +154,14 @@ textarea.input { height: auto; padding: 10px 14px; border-radius: 16px; line-hei
 @media (prefers-reduced-motion: reduce) { .help-pop { animation: none; } }
 
 /* ===== Header circles: connection status, theme and refresh share one size and one look ===== */
-.header-circle {
+/* Round icon buttons in page headings (add account, account settings) are the same glass circle. */
+.header-circle, .circle-btn {
   display: grid; place-items: center; flex: none; width: 34px; height: 34px; padding: 0;
   border: 1px solid var(--stroke); border-radius: 50%; background: var(--fill-2); color: var(--text-2);
-  box-shadow: inset 0 1px 0 var(--hairline), 0 0 0 .5px var(--edge);
-  transition: background-color .18s var(--ease), color .18s var(--ease), transform .18s var(--ease);
+  box-shadow: var(--ctl-shadow);
+  transition: background-color .18s var(--ease), color .18s var(--ease), transform .18s var(--ease), box-shadow .18s var(--ease);
 }
-button.header-circle { cursor: pointer; }
-button.header-circle:hover { background: var(--fill-3); color: var(--text); }
-button.header-circle:active { transform: scale(.92); }
+button.header-circle, .circle-btn { cursor: pointer; }
+button.header-circle:hover, .circle-btn:hover { background: var(--fill-3); color: var(--text); }
+button.header-circle:active, .circle-btn:active { transform: scale(.92); }
 button.header-circle:disabled { cursor: default; opacity: .7; transform: none; }
-
-/* Round icon buttons in page headings (add account, account settings). */
-.circle-btn {
-  display: grid; place-items: center; flex: none; width: 34px; height: 34px; padding: 0;
-  border: 1px solid var(--stroke); border-radius: 50%; background: var(--fill-2); color: var(--text-2); cursor: pointer;
-  box-shadow: inset 0 1px 0 var(--hairline), 0 0 0 .5px var(--edge);
-  transition: background-color .18s var(--ease), color .18s var(--ease), transform .18s var(--ease);
-}
-.circle-btn:hover { background: var(--fill-3); color: var(--text); }
-.circle-btn:active { transform: scale(.92); }
-.circle-btn.primary {
-  border-color: transparent; color: var(--accent-contrast);
-  background: linear-gradient(180deg, var(--accent-hi), var(--accent));
-  box-shadow: inset 0 1px 0 rgb(255 255 255 / 35%), 0 2px 10px color-mix(in srgb, var(--accent) 32%, transparent);
-}
-.circle-btn.primary:hover { background: linear-gradient(180deg, var(--accent-hi), var(--accent-hover)); color: var(--accent-contrast); }
