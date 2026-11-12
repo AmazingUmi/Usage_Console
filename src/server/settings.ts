@@ -2,7 +2,8 @@ import { L } from './i18n.js';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
-import type { ScanReport } from './usage/types.js';
+import { createHash } from 'node:crypto';
+import { USAGE_LOG_FORMATS, type CustomUsageSource, type ScanReport, type UsageLogFormat } from './usage/types.js';
 import { resolveAntigravityBrainDirs } from './usage/antigravity-sessions.js';
 import { validProxyPort } from './network/proxy-config.js';
 
@@ -36,6 +37,7 @@ export interface StoredSettings {
   /** Local HTTP proxy port, applied only on startup; null inherits the environment. */
   proxyPort: number | null;
   paths: PathSettings;
+  customUsageSources: CustomUsageSource[];
   accounts: ConsoleAccount[];
   dataDir: string;
 }
@@ -55,6 +57,7 @@ export interface RuntimePaths {
   antigravity: string;
   /** Every Antigravity brain dir to scan: Desktop/IDE, CLI, legacy IDE, or the configured path. */
   antigravityBrainAll: string[];
+  customUsageSources: Array<CustomUsageSource & { roots: string[] }>;
 }
 
 const PATH_KEYS: (keyof PathSettings)[] = [
@@ -110,6 +113,7 @@ function emptySettings(): StoredSettings {
     quotaRefreshIntervalSeconds: DEFAULT_REFRESH_SECONDS,
     proxyPort: null,
     paths: { ...EMPTY_PATHS },
+    customUsageSources: [],
     accounts: [],
     dataDir: '',
   };
@@ -157,6 +161,39 @@ function sanitizeStoredPaths(input: unknown): PathSettings {
   return next;
 }
 
+function readCustomUsageSources(input: unknown, strict = false): CustomUsageSource[] {
+  if (!Array.isArray(input)) {
+    if (strict) throw new Error(L('自定义扫描来源必须是列表', 'Custom scan sources must be a list'));
+    return [];
+  }
+  const sources: CustomUsageSource[] = [];
+  const locations = new Set<string>();
+  for (const item of input) {
+    try {
+      const row = item as Partial<CustomUsageSource> | null;
+      const harnessName = typeof row?.harnessName === 'string' ? row.harnessName.trim() : '';
+      if (!harnessName || harnessName.length > 80 || /[\x00-\x1f\x7f]/.test(harnessName)) {
+        throw new Error(L('请输入 1–80 字符的 Harness 名称', 'Enter a harness name of 1–80 characters'));
+      }
+      const format = row?.format;
+      if (!format || !USAGE_LOG_FORMATS.includes(format as UsageLogFormat)) {
+        throw new Error(L('请选择支持的会话格式', 'Choose a supported session format'));
+      }
+      const directory = typeof row?.directory === 'string' ? expandUserPath(row.directory) : '';
+      if (!directory) throw new Error(L('请输入扫描目录', 'Enter a scan directory'));
+      const location = `${format}\0${directory}`;
+      if (locations.has(location)) throw new Error(L('相同目录和格式已添加', 'This directory and format were already added'));
+      // Renaming a harness keeps its source identity. A new directory or format gets a new source.
+      const id = createHash('sha256').update(location).digest('hex').slice(0, 24);
+      locations.add(location);
+      sources.push({ id, harnessName, directory, format });
+    } catch (error) {
+      if (strict) throw error;
+    }
+  }
+  return sources;
+}
+
 export function loadSettings(): StoredSettings {
   if (storedCache) return storedCache;
   try {
@@ -170,6 +207,7 @@ export function loadSettings(): StoredSettings {
       quotaRefreshIntervalSeconds: validRefresh(parsed.quotaRefreshIntervalSeconds) ? parsed.quotaRefreshIntervalSeconds : DEFAULT_REFRESH_SECONDS,
       proxyPort: validProxyPort(parsed.proxyPort) ? parsed.proxyPort : null,
       paths: sanitizeStoredPaths(parsed.paths),
+      customUsageSources: readCustomUsageSources(parsed.customUsageSources),
       accounts: sanitizeAccounts(parsed.accounts),
       dataDir: typeof parsed.dataDir === 'string' ? parsed.dataDir.trim() : '',
     };
@@ -248,6 +286,11 @@ function computeRuntimePaths(): RuntimePaths {
     grokSessions: grokSessionsDir,
     antigravity: antigravityBrainAll.find((dir) => fs.existsSync(dir)) || antigravityBrainAll[0] || antigravityDir,
     antigravityBrainAll,
+    customUsageSources: settings.customUsageSources.map((source) => ({
+      ...source,
+      roots: source.format === 'antigravity' ? resolveAntigravityBrainDirs(source.directory)
+        : [source.format === 'claude' ? normalizeClaudeDir(source.directory) : source.directory],
+    })),
   };
 }
 
@@ -280,6 +323,7 @@ export function saveSettings(patch: {
   quotaRefreshIntervalSeconds?: number;
   proxyPort?: number | null;
   paths?: Partial<PathSettings>;
+  customUsageSources?: CustomUsageSource[];
   accounts?: ConsoleAccount[];
   dataDir?: string;
 }): StoredSettings {
@@ -311,6 +355,9 @@ export function saveSettings(patch: {
     quotaRefreshIntervalSeconds: refresh,
     proxyPort,
     paths: nextPaths,
+    customUsageSources: patch.customUsageSources === undefined
+      ? current.customUsageSources
+      : readCustomUsageSources(patch.customUsageSources, true),
     accounts: patch.accounts ? sanitizeAccounts(patch.accounts) : current.accounts,
     dataDir: patch.dataDir !== undefined
       ? (patch.dataDir.trim() && expandUserPath(patch.dataDir) !== defaultDataDir() ? expandUserPath(patch.dataDir) : '')
@@ -363,6 +410,7 @@ export function settingsView(scan: ScanReport) {
     resolved,
     claudeProjectsAll: runtime.claudeProjectsAll,
     antigravityBrainAll: runtime.antigravityBrainAll,
+    customUsageSources: stored.customUsageSources,
     availability: {
       codexDir: pathExists(resolved.codexDir),
       piAgentDir: pathExists(resolved.piAgentDir),

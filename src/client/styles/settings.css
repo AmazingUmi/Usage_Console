@@ -88,6 +88,11 @@
 .muted-text { color: var(--muted); font-size: 12.5px; }
 .list-row code { color: var(--text-2); font-size: 12px; overflow-wrap: anywhere; }
 
+.custom-source-fields { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px 12px; }
+.custom-source-fields label { display: grid; gap: 4px; min-width: 0; color: var(--text-2); font-size: 12.5px; }
+.custom-source-path { grid-column: 1 / -1; display: flex; align-items: flex-end; gap: 8px; }
+.custom-source-path label { flex: 1; }
+
 .account-avatar {
   --pc: var(--accent);
   display: grid; place-items: center; flex: none; width: 36px; height: 36px; border-radius: 11px;

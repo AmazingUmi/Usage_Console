@@ -1,3 +1,5 @@
+import type { CustomUsageSource } from '../server/usage/types';
+
 export interface QuotaWindow {
   label: string;
   remainingPercent: number;
@@ -87,6 +89,7 @@ export interface TokenUsageRecord {
   id?: string;
   timestamp: number;
   client?: string; // 'codex' | 'pi' | 'grokbuild' | 'claude' | 'antigravity' | 'gemini' | ...
+  harnessName?: string;
   provider: string;
   model: string;
   input: number;
@@ -113,6 +116,14 @@ export interface UsageOverview {
   clients: GroupedUsage[];
   records: TokenUsageRecord[];
   speed?: SpeedReport;
+  lastSyncTime: number;
+  scan?: ConsoleSettings['scan'];
+}
+
+export interface UsageScanProgress {
+  running: boolean;
+  completedSources: number;
+  totalSources: number;
   lastSyncTime: number;
 }
 
@@ -201,6 +212,7 @@ export interface ConsoleSettings {
   quotaRefreshIntervalSeconds: number;
   proxyPort: number | null;
   paths: PathSettings;
+  customUsageSources: CustomUsageSource[];
   defaults: PathSettings;
   resolved: PathSettings;
   availability: Record<keyof PathSettings, boolean>;

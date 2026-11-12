@@ -3,7 +3,8 @@ import path from 'node:path';
 import type { AccountType, ConsoleAccount } from '../settings.js';
 import { resolveDataDir } from '../settings.js';
 import type { QuotaWindow } from '../quota/types.js';
-import type { TokenUsageRecord } from '../usage/types.js';
+import { readJsonlLinesSync } from '../usage/jsonl.js';
+import { usageRecordId, type TokenUsageRecord } from '../usage/types.js';
 
 export interface AccountSubscription {
   plan?: string;
@@ -185,32 +186,57 @@ export function removeAccount(id: string): boolean {
 function publicUsage(record: TokenUsageRecord): TokenUsageRecord {
   const copy = { ...record } as Record<string, unknown>;
   for (const key of Object.keys(copy)) {
+    if (key === 'totalTokens' && Number.isFinite(record.totalTokens)) continue;
     if (TOKEN_KEY.test(key)) delete copy[key];
   }
   return copy as unknown as TokenUsageRecord;
 }
 
-export function loadUsageLedger(): TokenUsageRecord[] {
+export function loadUsageLedger(): Map<string, TokenUsageRecord> {
+  const records = new Map<string, TokenUsageRecord>();
   try {
-    return fs.readFileSync(usageFile(), 'utf8')
-      .split('\n')
-      .filter((line) => line.trim())
-      .map((line) => publicUsage(JSON.parse(line) as TokenUsageRecord));
-  } catch {
-    return [];
+    for (const line of readJsonlLinesSync(usageFile())) {
+      if (!line.trim()) continue;
+      try {
+        const parsed = JSON.parse(line) as TokenUsageRecord | null;
+        if (!parsed || !Number.isFinite(parsed.timestamp) || typeof parsed.model !== 'string' || typeof parsed.provider !== 'string') continue;
+        const record = publicUsage(parsed);
+        // Earlier ledgers omitted the total. Recover it from the retained counts.
+        record.totalTokens ??= (record.input || 0) + (record.output || 0);
+        record.id = usageRecordId(record);
+        records.set(record.id, record);
+      } catch {
+        // An interrupted append can leave one incomplete line; earlier usage is still valid.
+      }
+    }
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code !== 'ENOENT') throw error;
+  }
+  return records;
+}
+
+export function appendUsageLedger(records: Iterable<TokenUsageRecord>): void {
+  ensureDir();
+  const fd = fs.openSync(usageFile(), 'a', 0o600);
+  try {
+    // Start on a fresh line even after an interrupted write.
+    let chunk = '\n';
+    for (const record of records) {
+      chunk += `${JSON.stringify(publicUsage(record))}\n`;
+      if (chunk.length >= 64 * 1024) {
+        fs.writeFileSync(fd, chunk);
+        chunk = '';
+      }
+    }
+    if (chunk) fs.writeFileSync(fd, chunk);
+    fs.fsyncSync(fd);
+  } finally {
+    fs.closeSync(fd);
   }
 }
 
-export function saveUsageLedger(records: TokenUsageRecord[]): void {
-  ensureDir();
-  const file = usageFile();
-  const temp = `${file}.${process.pid}.tmp`;
-  const body = records.map((record) => JSON.stringify(publicUsage(record))).join('\n');
-  fs.writeFileSync(temp, body ? `${body}\n` : '');
-  fs.renameSync(temp, file);
-}
-
 export function attributeUsage(records: TokenUsageRecord[], accounts: ManagedAccount[]): TokenUsageRecord[] {
+  if (accounts.length === 0) return records;
   const only = (type: AccountType) => accounts.filter((account) => account.type === type);
   const gpt = only('gpt');
   const claude = only('claude');

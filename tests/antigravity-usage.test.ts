@@ -4,7 +4,8 @@ import os from 'node:os';
 import path from 'node:path';
 import test from 'node:test';
 import { MESSAGES } from '../src/client/i18n/messages.js';
-import { attributeUsage } from '../src/server/data/library.js';
+import { calibrateData, refreshUsageCache } from '../src/server/data/calibrate.js';
+import { upsertAccounts } from '../src/server/data/library.js';
 import { loadSettings, saveSettings, settingsView } from '../src/server/settings.js';
 import { resolveAntigravityBrainDirs, scanAntigravitySessions } from '../src/server/usage/antigravity-sessions.js';
 import { estimateCost, resolveModelRate } from '../src/server/usage/pricing.js';
@@ -320,7 +321,8 @@ test('settings, UsageStore, account attribution, and bilingual i18n keys wire An
 
   const emptyDir = path.join(tmp, 'empty');
   const agyRoot = path.join(tmp, 'custom-gemini');
-  writeJsonLines(path.join(agyRoot, 'antigravity', 'brain', 'session-a', '.system_generated', 'logs', 'transcript.jsonl'), [
+  const transcript = path.join(agyRoot, 'antigravity', 'brain', 'session-a', '.system_generated', 'logs', 'transcript.jsonl');
+  writeJsonLines(transcript, [
     {
       step_index: 0,
       source: 'USER_EXPLICIT',
@@ -342,6 +344,7 @@ test('settings, UsageStore, account attribution, and bilingual i18n keys wire An
   ]);
 
   saveSettings({
+    dataDir: path.join(tmp, 'data'),
     paths: {
       codexDir: emptyDir,
       piAgentDir: emptyDir,
@@ -352,7 +355,8 @@ test('settings, UsageStore, account attribution, and bilingual i18n keys wire An
   });
   assert.equal(loadSettings().paths.antigravityDir, agyRoot);
 
-  const count = await usageStore.sync();
+  upsertAccounts([{ type: 'agy', userId: 'agy-local', label: 'Local AGY', source: 'scan' }]);
+  const { count } = await calibrateData();
   assert.equal(count, 1);
 
   const view = settingsView(usageStore.getScanReport());
@@ -372,17 +376,23 @@ test('settings, UsageStore, account attribution, and bilingual i18n keys wire An
   // 0.1M * 0.75 + 0.2M * 0.075 + 0.02M * 3.75 = 0.075 + 0.015 + 0.075 = 0.165
   assert.equal(summary.estimatedCostUsd, 0.165);
 
-  const attributed = attributeUsage(usageStore.getAllRecords(), [
-    {
-      id: 'acc_agy',
-      type: 'agy',
-      label: 'Local AGY',
-      userId: 'agy-local',
-      notes: '',
-      source: 'scan',
-      createdAt: Date.now(),
-      updatedAt: Date.now(),
-    },
-  ]);
-  assert.equal(attributed[0].userId, 'agy-local');
+  const ledger = path.join(tmp, 'data', 'usage.jsonl');
+  const originalBytes = fs.statSync(ledger).size;
+  assert.equal(usageStore.getAllRecords()[0].userId, 'agy-local');
+  await refreshUsageCache();
+  assert.equal(usageStore.getAllRecords()[0].userId, 'agy-local');
+  assert.equal(fs.statSync(ledger).size, originalBytes);
+
+  fs.appendFileSync(transcript, `${JSON.stringify({
+    step_index: 2, source: 'MODEL', type: 'PLANNER_RESPONSE', status: 'DONE',
+    created_at: new Date().toISOString(), input_tokens: 10, output_tokens: 5,
+  })}\n`);
+  await refreshUsageCache();
+  assert.equal(usageStore.getSummary('all').totalTokens, 120_015);
+  assert.ok(fs.statSync(ledger).size > originalBytes);
+
+  fs.unlinkSync(transcript);
+  await refreshUsageCache();
+  assert.equal(usageStore.getAllRecords()[0].userId, 'agy-local');
+  assert.equal(usageStore.getSummary('all').totalTokens, 120_015);
 });

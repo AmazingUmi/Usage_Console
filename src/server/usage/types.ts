@@ -1,7 +1,19 @@
+export const USAGE_LOG_FORMATS = ['codex', 'claude', 'pi', 'grok', 'antigravity'] as const;
+export type UsageLogFormat = (typeof USAGE_LOG_FORMATS)[number];
+
+export interface CustomUsageSource {
+  id: string;
+  harnessName: string;
+  directory: string;
+  format: UsageLogFormat;
+}
+
 export interface TokenUsageRecord {
   id?: string;
   timestamp: number;
   client?: string; // 'codex' | 'pi' | 'grokbuild' | 'claude' | 'antigravity' | 'gemini' | 'opencode'
+  harnessName?: string;
+  harnessSourceId?: string;
   provider: string; // 'openai-codex' | 'anthropic' | 'antigravity' | 'xai' | ...
   model: string;
   input: number;
@@ -21,6 +33,21 @@ export interface TokenUsageRecord {
   decodeMs?: number;
 }
 
+export interface UsageScanObserver {
+  onFile: (file: string) => void;
+  onFileError: (file: string) => void;
+  onRecord: (record: TokenUsageRecord, file: string) => void;
+}
+
+export function usageClientName(record: TokenUsageRecord): string {
+  return record.harnessName || record.client || 'unknown';
+}
+
+export function usageRecordId(record: TokenUsageRecord): string {
+  if (typeof record.id === 'string' && record.id) return record.id;
+  return `${record.client ?? 'unknown'}_${record.timestamp}_${record.totalTokens}_${record.model}`;
+}
+
 export interface UsageSummary {
   totalTokens: number;
   inputTokens: number;
@@ -30,6 +57,13 @@ export interface UsageSummary {
   cacheWriteTokens: number;
   estimatedCostUsd: number;
   requestCount: number;
+}
+
+export interface UsageScanProgress {
+  running: boolean;
+  completedSources: number;
+  totalSources: number;
+  lastSyncTime: number;
 }
 
 export interface DailyTrendPoint {
@@ -58,7 +92,7 @@ export interface ScanSourceStatus {
   filesScanned: number;
   records: number;
   note?: string;
-  /** Machine-readable notes (`dedupe`, `truncated:N`, `errors:N`) the UI translates. */
+  /** Machine-readable notes the UI translates. */
   noteCodes?: string[];
 }
 

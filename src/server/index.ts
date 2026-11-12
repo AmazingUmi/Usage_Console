@@ -12,7 +12,7 @@ import { loadSettings, resolveDataDir, saveSettings, settingsView } from './sett
 import { queryAllLiveQuotas, quotaAgeMs } from './quota/oauth.js';
 import { usageStore } from './usage/store.js';
 import type { UsageRange } from './usage/types.js';
-import { calibrateData } from './data/calibrate.js';
+import { calibrateData, ensureUsageReady, refreshUsageCache } from './data/calibrate.js';
 import { copyDataIfMissing, loadAccounts, removeAccount, reorderAccounts, updateAccount, upsertAccounts } from './data/library.js';
 import { hasCredential, removeCredential, saveCredential } from './identity/credentials.js';
 import type { CredentialProvider } from './identity/credentials.js';
@@ -60,24 +60,19 @@ app.use('/api', (req, res, next) => {
 app.use(express.json());
 app.use(langMiddleware);
 
+const USAGE_SCAN_INTERVAL_MS = 10 * 60 * 1000;
+
 // Start work only after a successful bind; failed CLI startup must leave no scans or timers behind.
 function startBackgroundTasks(): void {
-  calibrateData().then(({ count }) => {
-    console.log(`[UsageStore] Calibrated ${count} usage records. Accounts come from console logins only.`);
-  }).catch(err => {
-    console.error('[UsageStore] Initial sync failed:', err);
-  });
-
   queryAllLiveQuotas().then(() => {
     console.log('[Quota] Initial live OAuth quota check completed.');
   }).catch(err => {
     console.warn('[Quota] Initial quota check warning:', err.message);
   });
 
-  // The listening server, not a background timer, owns the process lifetime.
   setInterval(() => {
-    usageStore.sync().catch(() => {});
-  }, 120 * 1000).unref();
+    refreshUsageCache().catch(err => console.warn('[UsageStore] Scheduled scan failed:', err));
+  }, USAGE_SCAN_INTERVAL_MS).unref();
   scheduleQuotaPoll();
 }
 
@@ -199,7 +194,7 @@ function parseExcludeAgyClaude(value: unknown): boolean {
 }
 
 async function usageOverview(range: UsageRange, days: number, limit: number, excludeAgyClaude: boolean) {
-  await usageStore.ensureReady();
+  await ensureUsageReady();
   const options = { excludeAgyClaude };
   return {
     range,
@@ -212,10 +207,23 @@ async function usageOverview(range: UsageRange, days: number, limit: number, exc
     records: usageStore.getRecentRecords(limit, range, options),
     speed: usageStore.getSpeed(range, options),
     lastSyncTime: usageStore.getLastSyncTime(),
+    scan: usageStore.getScanReport(),
   };
 }
 
 // Usage routes
+app.get('/api/usage/progress', (_req, res) => {
+  res.set({
+    'Content-Type': 'text/event-stream; charset=utf-8',
+    'Cache-Control': 'no-store',
+  });
+  res.flushHeaders();
+  const unsubscribe = usageStore.subscribeScanProgress((progress) => {
+    if (!res.destroyed) res.write(`data: ${JSON.stringify(progress)}\n\n`);
+  });
+  res.once('close', unsubscribe);
+});
+
 app.get('/api/usage/overview', async (req, res) => {
   try {
     const range = parseRange(req.query.range);
@@ -230,7 +238,7 @@ app.get('/api/usage/overview', async (req, res) => {
 
 app.get('/api/usage/summary', async (req, res) => {
   try {
-    await usageStore.ensureReady();
+    await ensureUsageReady();
     const range = parseRange(req.query.range, 'today');
     res.json({ range, summary: usageStore.getSummary(range), lastSyncTime: usageStore.getLastSyncTime() });
   } catch (err) {
@@ -240,7 +248,7 @@ app.get('/api/usage/summary', async (req, res) => {
 
 app.get('/api/usage/trend', async (req, res) => {
   try {
-    await usageStore.ensureReady();
+    await ensureUsageReady();
     const days = parseBoundedInt(req.query.days, 14, 1, 90);
     res.json({ days, trend: usageStore.getDailyTrend(days) });
   } catch (err) {
@@ -250,7 +258,7 @@ app.get('/api/usage/trend', async (req, res) => {
 
 app.get('/api/usage/by-model', async (req, res) => {
   try {
-    await usageStore.ensureReady();
+    await ensureUsageReady();
     const range = parseRange(req.query.range, '7d');
     res.json({ range, data: usageStore.getByModel(range) });
   } catch (err) {
@@ -260,7 +268,7 @@ app.get('/api/usage/by-model', async (req, res) => {
 
 app.get('/api/usage/by-provider', async (req, res) => {
   try {
-    await usageStore.ensureReady();
+    await ensureUsageReady();
     const range = parseRange(req.query.range, '7d');
     res.json({ range, data: usageStore.getByProvider(range) });
   } catch (err) {
@@ -270,7 +278,7 @@ app.get('/api/usage/by-provider', async (req, res) => {
 
 app.get('/api/usage/by-client', async (req, res) => {
   try {
-    await usageStore.ensureReady();
+    await ensureUsageReady();
     const range = parseRange(req.query.range, '7d');
     res.json({ range, data: usageStore.getByClient(range) });
   } catch (err) {
@@ -280,7 +288,7 @@ app.get('/api/usage/by-client', async (req, res) => {
 
 app.get('/api/usage/records', async (req, res) => {
   try {
-    await usageStore.ensureReady();
+    await ensureUsageReady();
     const limit = parseBoundedInt(req.query.limit, 50, 1, 200);
     const range = parseRange(req.query.range, 'all');
     res.json({ limit, range, records: usageStore.getRecentRecords(limit, range) });
@@ -427,7 +435,7 @@ app.post('/api/login/claude/finish', async (req, res) => {
 
 app.get('/api/settings', async (_req, res) => {
   try {
-    await usageStore.ensureReady();
+    await ensureUsageReady();
     res.json(publicSettings());
   } catch (err) {
     res.status(500).json({ error: (err as Error).message });
@@ -437,13 +445,14 @@ app.get('/api/settings', async (_req, res) => {
 app.put('/api/settings', async (req, res) => {
   try {
     const previousDataDir = resolveDataDir();
-    const before = JSON.stringify(loadSettings().paths);
-    saveSettings(req.body ?? {});
+    const previous = loadSettings();
+    const next = saveSettings(req.body ?? {});
     const nextDataDir = resolveDataDir();
     if (previousDataDir !== nextDataDir) copyDataIfMissing(previousDataDir, nextDataDir);
     scheduleQuotaPoll();
-    const pathsChanged = JSON.stringify(loadSettings().paths) !== before;
-    if (pathsChanged || req.body?.rescan === true || previousDataDir !== nextDataDir) await calibrateData();
+    const pathsChanged = JSON.stringify(next.paths) !== JSON.stringify(previous.paths);
+    const sourcesChanged = JSON.stringify(next.customUsageSources) !== JSON.stringify(previous.customUsageSources);
+    if (pathsChanged || sourcesChanged || req.body?.rescan === true || previousDataDir !== nextDataDir) await calibrateData();
     const quota = pathsChanged ? decorateQuota(await queryAllLiveQuotas(true)) : null;
     res.json({ settings: publicSettings(), quota });
   } catch (err) {

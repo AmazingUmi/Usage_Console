@@ -183,7 +183,7 @@ export const UsageDetailSection: React.FC<UsageDetailSectionProps> = ({ models, 
               {records.map((record, idx) => (
                 <tr key={record.id || `${record.timestamp}-${record.model}-${idx}`}>
                   <td className="muted mono">{formatDateTime(record.timestamp)}</td>
-                  <td><span className="chip">{record.client || 'unknown'}</span></td>
+                  <td><span className="chip">{record.harnessName || record.client || 'unknown'}</span></td>
                   <td className="mono" title={record.provider}>{record.model}</td>
                   <td className="num">{formatTokens(record.input)}</td>
                   <td className="num">

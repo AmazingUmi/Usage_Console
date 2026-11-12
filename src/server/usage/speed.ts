@@ -1,4 +1,4 @@
-import type { TokenUsageRecord } from './types.js';
+import { usageClientName, type TokenUsageRecord } from './types.js';
 
 /** Ignore tiny completions; their rate is mostly timer noise. */
 export const MIN_SPEED_TOKENS = 32;
@@ -110,7 +110,7 @@ export function summarizeSpeed(records: TokenUsageRecord[]): SpeedReport {
     const ttft = positive(record.ttftMs);
     const speed = tokensPerSecond(record);
     if (ttft == null && speed == null) continue;
-    const client = record.client || 'unknown';
+    const client = usageClientName(record);
     const model = record.model || 'unknown';
     const key = `${client}\0${model}`;
     let group = groups.get(key);

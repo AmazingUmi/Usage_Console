@@ -3,12 +3,13 @@ import { Header } from './components/Header';
 import { QuotaCard } from './components/QuotaCard';
 import { OverviewDashboard } from './components/OverviewDashboard';
 import { UsageDetailSection } from './components/UsageDetailSection';
+import { UsageScanIndicator } from './components/UsageScanIndicator';
 import { SettingsPage } from './components/SettingsPage';
 import type { SettingsPane } from './components/SettingsPage';
 import { EditAccountDialog } from './components/EditAccountDialog';
 import { AddAccountDialog } from './components/AddAccountDialog';
 import { useI18n } from './i18n';
-import { fetchQuota, refreshQuota, fetchUsageOverview, fetchSettings, reorderAccounts, syncUsage, trendDaysFor } from './api';
+import { fetchQuota, refreshQuota, fetchUsageOverview, fetchSettings, reorderAccounts, subscribeUsageScan, syncUsage, trendDaysFor } from './api';
 import { quotaCardsForAccounts } from './lib/providers';
 import { HelpTip } from './components/HelpTip';
 import { Icon } from './components/Icon';
@@ -21,6 +22,7 @@ import type {
   GroupedUsage,
   TokenUsageRecord,
   UsageRange,
+  UsageScanProgress,
   ConnectionState,
   SpeedReport,
 } from './types';
@@ -57,6 +59,7 @@ export const App: React.FC = () => {
   const [range, setRange] = useState<UsageRange>('7d');
   const [isRefreshing, setIsRefreshing] = useState(false);
   const [isLoadingUsage, setIsLoadingUsage] = useState(true);
+  const [usageScan, setUsageScan] = useState<UsageScanProgress | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [connectionState, setConnectionState] = useState<ConnectionState>('connecting');
   const [lastUpdated, setLastUpdated] = useState<number | undefined>(undefined);
@@ -79,6 +82,8 @@ export const App: React.FC = () => {
     setRecords(data.records ?? []);
     setSpeed(data.speed ?? null);
     setLastUpdated(data.lastSyncTime || Date.now());
+    const scan = data.scan;
+    if (scan) setSettings((current) => current && scan.lastSyncTime > current.scan.lastSyncTime ? { ...current, scan } : current);
   }, []);
 
   const loadQuota = useCallback(async (signal?: AbortSignal) => {
@@ -135,12 +140,22 @@ export const App: React.FC = () => {
     return () => window.clearTimeout(timer);
   }, [nextRefreshAt, refreshSeconds, loadQuota]);
 
+  useEffect(() => subscribeUsageScan(setUsageScan), []);
+
   useEffect(() => {
     const controller = new AbortController();
     setIsLoadingUsage(true);
     loadUsage(range, controller.signal);
     return () => controller.abort();
   }, [range, loadUsage]);
+
+  useEffect(() => {
+    if (isLoadingUsage || isRefreshing || !usageScan || usageScan.running
+      || usageScan.lastSyncTime <= (lastUpdated ?? 0)) return;
+    const controller = new AbortController();
+    void loadUsage(range, controller.signal);
+    return () => controller.abort();
+  }, [isLoadingUsage, isRefreshing, lastUpdated, loadUsage, range, usageScan]);
 
   useEffect(() => {
     const controller = new AbortController();
@@ -225,6 +240,7 @@ export const App: React.FC = () => {
   };
 
   const hideAgyClaude = settings?.hideAgyClaude ?? true;
+  const showUsageScan = isLoadingUsage || usageScan?.running;
 
   return (
     <>
@@ -323,6 +339,7 @@ export const App: React.FC = () => {
             </div>
           </div>
 
+          {showUsageScan && <UsageScanIndicator progress={usageScan?.running ? usageScan : null} />}
           {summary ? (
             <OverviewDashboard
               summary={summary}
@@ -332,9 +349,7 @@ export const App: React.FC = () => {
               clients={clients}
               speed={speed}
             />
-          ) : (
-            <div className="panel empty">{isLoadingUsage ? t('overview.loading') : t('overview.none')}</div>
-          )}
+          ) : !showUsageScan && <div className="panel empty">{t('overview.none')}</div>}
         </section>
 
         <UsageDetailSection

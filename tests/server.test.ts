@@ -10,6 +10,7 @@ import test, { type TestContext } from 'node:test';
 import { fileURLToPath } from 'node:url';
 import { promisify } from 'node:util';
 import { createServer as createViteServer } from 'vite';
+import type { CustomUsageSource, GroupedUsage, ScanSourceStatus, TokenUsageRecord, UsageScanProgress } from '../src/server/usage/types.ts';
 
 const execFileAsync = promisify(execFile);
 const root = fileURLToPath(new URL('../', import.meta.url));
@@ -40,8 +41,7 @@ async function listen(server: net.Server): Promise<number> {
   return (server.address() as net.AddressInfo).port;
 }
 
-async function startCli(t: TestContext): Promise<string> {
-  const home = fs.mkdtempSync(path.join(os.tmpdir(), 'usage-server-test-'));
+async function startCli(t: TestContext, home = fs.mkdtempSync(path.join(os.tmpdir(), 'usage-server-test-')), keepHome = false): Promise<string> {
   const reservation = net.createServer();
   const port = await listen(reservation);
   await new Promise<void>((resolve) => reservation.close(() => resolve()));
@@ -52,7 +52,7 @@ async function startCli(t: TestContext): Promise<string> {
   t.after(async () => {
     child.kill();
     await closed;
-    fs.rmSync(home, { recursive: true, force: true });
+    if (!keepHome) fs.rmSync(home, { recursive: true, force: true });
   });
   let output = '';
   let timer: NodeJS.Timeout;
@@ -73,9 +73,11 @@ async function startCli(t: TestContext): Promise<string> {
   }
 }
 
-async function request(base: string, headers: http.OutgoingHttpHeaders = {}, method = 'POST', route = '/api/login/claude/start') {
+async function request(base: string, headers: http.OutgoingHttpHeaders = {}, method = 'POST', route = '/api/login/claude/start', body?: Record<string, unknown>) {
+  const payload = body === undefined ? undefined : JSON.stringify(body);
+  const requestHeaders = payload ? { 'Content-Type': 'application/json', 'Content-Length': Buffer.byteLength(payload), ...headers } : headers;
   return new Promise<{ status: number; body: string }>((resolve, reject) => {
-    const req = http.request(new URL(route, base), { method, headers }, (res) => {
+    const req = http.request(new URL(route, base), { method, headers: requestHeaders }, (res) => {
       let body = '';
       res.setEncoding('utf8');
       res.on('data', (chunk) => { body += chunk; });
@@ -84,9 +86,227 @@ async function request(base: string, headers: http.OutgoingHttpHeaders = {}, met
     });
     req.on('error', reject);
     req.setTimeout(3000, () => req.destroy(new Error('Request timed out')));
-    req.end();
+    req.end(payload);
   });
 }
+
+test('quota reads stay idle and the usage scan stream reports completed sources', { timeout: 10_000 }, async (t) => {
+  const home = fs.mkdtempSync(path.join(os.tmpdir(), 'usage-on-demand-test-'));
+  const sessions = path.join(home, '.pi', 'agent', 'sessions');
+  fs.mkdirSync(sessions, { recursive: true });
+  const timestamp = new Date().toISOString();
+  fs.writeFileSync(path.join(sessions, 'one.jsonl'), JSON.stringify({
+    type: 'message',
+    timestamp,
+    message: { model: 'gpt-5.4', usage: { input: 10, output: 5 } },
+  }));
+  const url = await startCli(t, home);
+  const ledger = path.join(home, '.usage-console', 'usage.jsonl');
+  assert.equal((await request(url, {}, 'GET', '/api/menubar?lang=en')).status, 200);
+  assert.equal((await request(url, {}, 'GET', '/api/quota')).status, 200);
+  assert.equal(fs.existsSync(ledger), false);
+
+  const events = await new Promise<http.IncomingMessage>((resolve, reject) => {
+    http.get(`${url}/api/usage/progress`, resolve).once('error', reject);
+  });
+  t.after(() => { events.destroy(); });
+  assert.match(events.headers['content-type'] ?? '', /text\/event-stream/);
+  const lines = createInterface({ input: events })[Symbol.asyncIterator]();
+  async function nextProgress(): Promise<UsageScanProgress> {
+    for (;;) {
+      const line = await lines.next();
+      assert.equal(line.done, false, 'Progress stream closed early');
+      if (line.value.startsWith('data: ')) return JSON.parse(line.value.slice(6));
+    }
+  }
+  assert.deepEqual(await nextProgress(), { running: false, completedSources: 0, totalSources: 0, lastSyncTime: 0 });
+
+  const summary = request(url, {}, 'GET', '/api/usage/summary?range=all');
+  const completed = [];
+  let progress = await nextProgress();
+  while (progress.running) {
+    assert.equal(progress.totalSources, 5);
+    completed.push(progress.completedSources);
+    progress = await nextProgress();
+  }
+  assert.deepEqual(completed, [0, 1, 2, 3, 4, 5]);
+  assert.ok(progress.lastSyncTime > 0);
+  events.destroy();
+
+  const result = await summary;
+  assert.equal(result.status, 200);
+  const data = JSON.parse(result.body);
+  assert.equal(data.summary.requestCount, 1);
+  assert.equal(data.summary.totalTokens, 15);
+  assert.equal(fs.existsSync(ledger), true);
+});
+
+function writeUsageLog(file: string, ...rows: unknown[]): void {
+  fs.mkdirSync(path.dirname(file), { recursive: true });
+  fs.writeFileSync(file, `${rows.map((row) => JSON.stringify(row)).join('\n')}\n`);
+}
+
+test('custom scan sources select a parser and group by harness without double counting overlaps', { timeout: 10_000 }, async (t) => {
+  const home = fs.mkdtempSync(path.join(os.tmpdir(), 'usage-custom-sources-'));
+  const timestamp = new Date().toISOString();
+  const piSessions = path.join(home, '.pi', 'agent', 'sessions');
+  const customPi = path.join(piSessions, 'experiments');
+  const customCodex = path.join(home, 'codex-archive');
+  const customClaude = path.join(home, 'claude-archive');
+  const customAgy = path.join(home, 'agy-archive');
+  writeUsageLog(path.join(piSessions, 'default.jsonl'), {
+    type: 'message', timestamp, message: { model: 'gpt-5.4', usage: { input: 10, output: 2 } },
+  });
+  writeUsageLog(path.join(customPi, 'run.jsonl'), null, {
+    type: 'message', timestamp, message: { model: {}, usage: { input: 999, output: 999 } },
+  }, {
+    type: 'message', timestamp, message: { model: 'gpt-5.4', usage: { input: 10, output: 5, cacheRead: 3 } },
+  });
+  writeUsageLog(path.join(customCodex, 'rollout.jsonl'), null, {
+    type: 'turn_context', timestamp, payload: { model: 'gpt-5.4' },
+  }, {
+    type: 'event_msg', timestamp,
+    payload: { type: 'token_count', info: { last_token_usage: { input_tokens: 23, output_tokens: 6 } } },
+  });
+  const claudeMessage = { id: 'msg-1', model: 'claude-sonnet-4', usage: { input_tokens: 30, output_tokens: 2 } };
+  writeUsageLog(path.join(home, '.claude', 'projects', 'workspace', 'session.jsonl'), {
+    type: 'assistant', timestamp, message: claudeMessage,
+  });
+  writeUsageLog(path.join(customClaude, 'session.jsonl'), null, {
+    type: 'assistant', timestamp,
+    message: { ...claudeMessage, stop_reason: 'end_turn', usage: { input_tokens: 30, output_tokens: 20 } },
+  });
+  writeUsageLog(path.join(customAgy, 'conversation', '.system_generated', 'logs', 'transcript.jsonl'), null, {
+    type: 'PLANNER_RESPONSE', source: 'MODEL', status: 'DONE', step_index: 1,
+    created_at: timestamp, input_tokens: 7, output_tokens: 3,
+  });
+
+  const url = await startCli(t, home);
+  const sources = [
+    { harnessName: '实验记录', directory: customPi, format: 'pi' },
+    { harnessName: '实验记录', directory: '~/codex-archive', format: 'codex' },
+    { harnessName: '实验记录', directory: customClaude, format: 'claude' },
+    { harnessName: 'AGY archive', directory: customAgy, format: 'antigravity' },
+    { harnessName: 'Wrong format', directory: customCodex, format: 'pi' },
+  ];
+  const saved = await request(url, {}, 'PUT', '/api/settings', { customUsageSources: sources });
+  assert.equal(saved.status, 200, saved.body);
+  const settings = JSON.parse(saved.body).settings as {
+    customUsageSources: CustomUsageSource[];
+    scan: { sources: ScanSourceStatus[]; recordCount: number };
+  };
+  assert.equal(settings.customUsageSources[1].directory, customCodex);
+  assert.equal(settings.scan.recordCount, 5);
+  const reports = new Map(settings.scan.sources.map((report) => [report.id, report]));
+  assert.equal(reports.get('pi-session')?.filesScanned, 1);
+  assert.equal(reports.get('claude')?.records, 0);
+  const customReports = settings.customUsageSources.map(({ id }) => reports.get(`custom:${id}`));
+  assert.deepEqual(customReports.map((report) => report?.filesScanned), [1, 1, 1, 1, 1]);
+  assert.deepEqual(customReports.map((report) => report?.records), [1, 1, 1, 1, 0]);
+  assert.deepEqual(customReports[4]?.noteCodes, ['no-usage']);
+
+  const clients = await request(url, {}, 'GET', '/api/usage/by-client?range=all');
+  assert.equal(clients.status, 200);
+  const groups: GroupedUsage[] = JSON.parse(clients.body).data;
+  assert.deepEqual(groups.map(({ name, totalTokens, requestCount }) => [name, totalTokens, requestCount]), [
+    ['实验记录', 94, 3], ['pi', 12, 1], ['AGY archive', 10, 1],
+  ]);
+  const result = await request(url, {}, 'GET', '/api/usage/records?range=all');
+  const records: TokenUsageRecord[] = JSON.parse(result.body).records;
+  assert.equal(records.find((record) => record.client === 'codex')?.harnessName, '实验记录');
+  assert.equal(records.find((record) => record.client === 'codex')?.provider, 'openai-codex');
+  assert.equal(records.find((record) => record.client === 'pi' && record.harnessName)?.cacheRead, 3);
+
+  const unsupported = await request(url, { 'x-lang': 'en' }, 'PUT', '/api/settings', {
+    customUsageSources: [{ ...sources[0], format: 'unknown' }],
+  });
+  assert.equal(unsupported.status, 400);
+  assert.match(unsupported.body, /Choose a supported session format/);
+  const persisted = await request(url, {}, 'GET', '/api/settings');
+  assert.deepEqual(JSON.parse(persisted.body).customUsageSources, settings.customUsageSources);
+
+  // Refresh a modified rollout, retain history for a removed file and relabel an unchanged Pi log.
+  fs.unlinkSync(path.join(piSessions, 'default.jsonl'));
+  fs.appendFileSync(path.join(customCodex, 'rollout.jsonl'), `${JSON.stringify({
+    type: 'event_msg', timestamp,
+    payload: { type: 'token_count', info: { last_token_usage: { input_tokens: 6, output_tokens: 3 } } },
+  })}\n`);
+  const rescanned = await request(url, {}, 'PUT', '/api/settings', {
+    customUsageSources: [{ ...sources[0], harnessName: 'Pi bench' }, ...sources.slice(1)],
+  });
+  assert.equal(rescanned.status, 200, rescanned.body);
+  const overview = await request(url, {}, 'GET', '/api/usage/overview?range=all');
+  assert.equal(overview.status, 200);
+  const updated = JSON.parse(overview.body);
+  assert.deepEqual(updated.scan, JSON.parse(rescanned.body).settings.scan);
+  assert.deepEqual((updated.clients as GroupedUsage[]).map(({ name, totalTokens, requestCount }) => [name, totalTokens, requestCount]), [
+    ['实验记录', 88, 3], ['Pi bench', 15, 1], ['pi', 12, 1], ['AGY archive', 10, 1],
+  ]);
+});
+
+test('usage history survives removed files, removed sources and a service restart', { timeout: 10_000 }, async (t) => {
+  const home = fs.mkdtempSync(path.join(os.tmpdir(), 'usage-custom-cache-'));
+  t.after(() => fs.rmSync(home, { recursive: true, force: true }));
+  const directory = path.join(home, 'grok-archive');
+  const file = path.join(directory, 'session', 'updates.jsonl');
+  const ledger = path.join(home, '.usage-console', 'usage.jsonl');
+  const legacyTimestamp = Date.now() - 60_000;
+  writeUsageLog(ledger, {
+    id: `codex_${legacyTimestamp}_12_gpt-5.4`, timestamp: legacyTimestamp,
+    client: 'codex', provider: 'openai-codex', model: 'gpt-5.4', input: 8, output: 4,
+  });
+  writeUsageLog(file, {
+    timestamp: new Date().toISOString(),
+    params: { update: { sessionUpdate: 'turn_completed', usage: { inputTokens: 10, outputTokens: 5, totalTokens: 25 } } },
+  });
+  const source = { harnessName: 'Grok archive', directory, format: 'grok' };
+  await t.test('collect usage, rename the unavailable source and remove it', async (stage) => {
+    const url = await startCli(stage, home, true);
+    const saved = await request(url, {}, 'PUT', '/api/settings', { customUsageSources: [source] });
+    assert.equal(saved.status, 200, saved.body);
+    assert.equal(JSON.parse(saved.body).settings.scan.recordCount, 2);
+    fs.unlinkSync(file);
+
+    const renamed = await request(url, {}, 'PUT', '/api/settings', {
+      customUsageSources: [{ ...source, harnessName: 'Archived build' }],
+    });
+    assert.equal(renamed.status, 200, renamed.body);
+    const removed = await request(url, {}, 'PUT', '/api/settings', { customUsageSources: [] });
+    assert.equal(removed.status, 200, removed.body);
+    assert.equal(JSON.parse(removed.body).settings.scan.recordCount, 2);
+    assert.equal(JSON.parse(removed.body).settings.scan.sources.length, 5);
+  });
+
+  // Simulate an interrupted write and a new session discovered after restarting.
+  fs.appendFileSync(ledger, '{"id":"interrupted');
+  const piFile = path.join(home, '.pi', 'agent', 'sessions', 'new.jsonl');
+  writeUsageLog(piFile, {
+    type: 'message', timestamp: new Date().toISOString(),
+    message: { model: 'gpt-5.4', usage: { input: 10, output: 5 } },
+  });
+  await t.test('merge a new session with the persisted history', async (stage) => {
+    const url = await startCli(stage, home, true);
+    const listed = await request(url, {}, 'GET', '/api/usage/by-client?range=all');
+    assert.equal(listed.status, 200, listed.body);
+    const groups: GroupedUsage[] = JSON.parse(listed.body).data;
+    assert.deepEqual(groups.map(({ name, totalTokens }) => [name, totalTokens]), [['Archived build', 25], ['pi', 15], ['codex', 12]]);
+
+    const size = fs.statSync(ledger).size;
+    const repeated = await request(url, {}, 'POST', '/api/usage/sync');
+    assert.equal(repeated.status, 200, repeated.body);
+    assert.equal(JSON.parse(repeated.body).count, 3);
+    assert.equal(fs.statSync(ledger).size, size);
+  });
+
+  fs.unlinkSync(piFile);
+  await t.test('read all archived sessions from the ledger alone', async (stage) => {
+    const url = await startCli(stage, home, true);
+    const result = await request(url, {}, 'GET', '/api/usage/summary?range=all');
+    assert.equal(result.status, 200, result.body);
+    assert.equal(JSON.parse(result.body).summary.totalTokens, 52);
+    assert.equal(JSON.parse(result.body).summary.requestCount, 3);
+  });
+});
 
 test('menu bar starts a local service, reads menu data, and shuts it down when the owner closes', { timeout: 15_000 }, async (t) => {
   const home = fs.mkdtempSync(path.join(os.tmpdir(), 'usage-menu-owner-test-'));

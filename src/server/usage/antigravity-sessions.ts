@@ -1,6 +1,7 @@
 import fs from 'node:fs';
 import path from 'node:path';
-import type { TokenUsageRecord } from './types.js';
+import { readJsonlLinesSync } from './jsonl.js';
+import type { TokenUsageRecord, UsageScanObserver } from './types.js';
 
 const MAX_FILES = 4000;
 const MAX_FILE_BYTES = 80 * 1024 * 1024;
@@ -242,8 +243,7 @@ function loadFullStepsByIndex(fullPath: string, maxBytes: number): Map<number, R
   try {
     const stat = fs.statSync(fullPath);
     if (!stat.isFile() || stat.size > maxBytes) return byStep;
-    const lines = fs.readFileSync(fullPath, 'utf8').split('\n');
-    for (const line of lines) {
+    for (const line of readJsonlLinesSync(fullPath)) {
       if (!line.trim()) continue;
       try {
         const parsed = JSON.parse(line) as Record<string, unknown>;
@@ -286,7 +286,6 @@ function parseConversationTarget(target: TranscriptTarget): ParsedConversation |
     return cached.conversation;
   }
 
-  const lines = fs.readFileSync(target.transcriptPath, 'utf8').split('\n');
   let fullByStep: Map<number, Record<string, unknown>> | null = null;
   const getFullStep = (stepIndex: number): Record<string, unknown> | undefined => {
     if (target.fullTranscriptPath === target.transcriptPath || fullSize === 0) return undefined;
@@ -299,8 +298,9 @@ function parseConversationTarget(target: TranscriptTarget): ParsedConversation |
   const subagents: SubagentSpawn[] = [];
   let pendingSubagents: Array<{ modelArg?: string; parentStepIndex: number }> = [];
 
-  for (let lineIdx = 0; lineIdx < lines.length; lineIdx += 1) {
-    const line = lines[lineIdx];
+  let lineIdx = -1;
+  for (const line of readJsonlLinesSync(target.transcriptPath)) {
+    lineIdx += 1;
     if (!line.trim()) continue;
     let json: Record<string, unknown>;
     try {
@@ -308,6 +308,7 @@ function parseConversationTarget(target: TranscriptTarget): ParsedConversation |
     } catch {
       continue;
     }
+    if (!json || typeof json !== 'object') continue;
 
     const stepIndex = typeof json.step_index === 'number' && Number.isInteger(json.step_index)
       ? json.step_index
@@ -438,7 +439,7 @@ function changeBeforeOrAt(changes: ModelChange[], stepIndex: number): string | u
   return active;
 }
 
-export function scanAntigravitySessions(roots: string | string[]): AntigravityScanResult {
+export function scanAntigravitySessions(roots: string | string[], observer?: UsageScanObserver): AntigravityScanResult {
   const inputRoots = Array.isArray(roots) ? roots : [roots];
   const candidateDirs = Array.from(new Set(inputRoots.flatMap((root) => resolveAntigravityBrainDirs(root))));
   const existing = candidateDirs.filter((dir) => dir && fs.existsSync(dir));
@@ -475,30 +476,32 @@ export function scanAntigravitySessions(roots: string | string[]): AntigravitySc
     if (!seenPaths.has(key)) fileCache.delete(key);
   }
 
-  const conversations = new Map<string, ParsedConversation>();
+  const conversations = new Map<string, { conversation: ParsedConversation; file: string }>();
   const subagentLinks = new Map<string, SubagentSpawn>();
   let errors = 0;
 
   for (const target of targets) {
+    observer?.onFile(target.transcriptPath);
     try {
       const parsed = parseConversationTarget(target);
       if (!parsed) continue;
-      const prev = conversations.get(parsed.conversationId);
+      const prev = conversations.get(parsed.conversationId)?.conversation;
       if (!prev || parsed.steps.length >= prev.steps.length) {
-        conversations.set(parsed.conversationId, parsed);
+        conversations.set(parsed.conversationId, { conversation: parsed, file: target.transcriptPath });
       }
       for (const spawn of parsed.subagents) {
         subagentLinks.set(spawn.childConversationId, spawn);
       }
     } catch {
       errors += 1;
+      observer?.onFileError(target.transcriptPath);
     }
   }
 
   const appModelCache = new Map<string, string | undefined>();
   const resolveModelAt = (conversationId: string, stepIndex: number, depth = 0): string => {
     if (depth > 8) return 'unknown';
-    const conv = conversations.get(conversationId);
+    const conv = conversations.get(conversationId)?.conversation;
     if (conv) {
       const changed = changeBeforeOrAt(conv.modelChanges, stepIndex);
       if (changed) return changed;
@@ -523,7 +526,7 @@ export function scanAntigravitySessions(roots: string | string[]): AntigravitySc
   };
 
   const recordsById = new Map<string, TokenUsageRecord>();
-  for (const conv of conversations.values()) {
+  for (const { conversation: conv, file } of conversations.values()) {
     for (const step of conv.steps) {
       const id = `antigravity:${conv.conversationId}:${step.stepIndex}`;
       const model = step.explicitModel || resolveModelAt(conv.conversationId, step.stepIndex);
@@ -542,6 +545,7 @@ export function scanAntigravitySessions(roots: string | string[]): AntigravitySc
         source: 'antigravity-session',
         sessionId: conv.conversationId,
       };
+      observer?.onRecord(record, file);
       recordsById.set(id, record);
     }
   }

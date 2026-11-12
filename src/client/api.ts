@@ -11,6 +11,7 @@ import type {
   TokenUsageRecord,
   UsageRange,
   UsageOverview,
+  UsageScanProgress,
 } from './types';
 
 const API_BASE = '/api';
@@ -67,6 +68,19 @@ export async function fetchUsageOverview(
   return readJson<UsageOverview>(res, 'Failed to fetch usage overview');
 }
 
+export function subscribeUsageScan(onProgress: (progress: UsageScanProgress | null) => void): () => void {
+  const events = new EventSource(`${API_BASE}/usage/progress`);
+  events.onmessage = (event) => {
+    try {
+      onProgress(JSON.parse(event.data) as UsageScanProgress);
+    } catch {
+      onProgress(null);
+    }
+  };
+  events.onerror = () => onProgress(null);
+  return () => events.close();
+}
+
 export async function fetchSettings(signal?: AbortSignal): Promise<ConsoleSettings> {
   const res = await apiFetch(`${API_BASE}/settings`, { signal });
   return readJson<ConsoleSettings>(res, 'Failed to fetch settings');
@@ -84,6 +98,7 @@ export async function saveSettings(body: {
   quotaRefreshIntervalSeconds?: number;
   proxyPort?: number | null;
   paths?: Partial<PathSettings>;
+  customUsageSources?: ConsoleSettings['customUsageSources'];
   accounts?: ConsoleAccount[];
   dataDir?: string;
   rescan?: boolean;

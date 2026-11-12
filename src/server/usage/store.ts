@@ -1,16 +1,17 @@
-import fs from 'node:fs/promises';
 import fsSync from 'node:fs';
 import path from 'node:path';
 import { CONFIG } from '../config.js';
-import type { TokenUsageRecord, UsageSummary, DailyTrendPoint, GroupedUsage, UsageRange, ScanReport, ScanSourceStatus } from './types.js';
+import type { RuntimePaths } from '../settings.js';
+import { usageClientName, usageRecordId, type TokenUsageRecord, type UsageSummary, type DailyTrendPoint, type GroupedUsage, type UsageRange, type ScanReport, type ScanSourceStatus, type UsageScanProgress, type UsageLogFormat, type UsageScanObserver } from './types.js';
 import { estimateCost } from './pricing.js';
 import { scanAntigravitySessions } from './antigravity-sessions.js';
 import { scanClaudeConversations } from './claude-sessions.js';
-import { parseCodexSession } from './codex-sessions.js';
+import { readCodexSession } from './codex-sessions.js';
+import { readJsonlLines } from './jsonl.js';
 import { speedWindow, summarizeSpeed, type SpeedReport } from './speed.js';
 
-function toEpoch(value: unknown, fallback = Date.now()): number {
-  if (typeof value === 'number' && Number.isFinite(value)) {
+function toEpoch(value: unknown): number {
+  if (typeof value === 'number' && Number.isFinite(value) && value > 0) {
     return value < 1e11 ? value * 1000 : value;
   }
   if (typeof value === 'string' && value.trim()) {
@@ -21,7 +22,7 @@ function toEpoch(value: unknown, fallback = Date.now()): number {
     const parsed = Date.parse(value);
     if (Number.isFinite(parsed)) return parsed;
   }
-  return fallback;
+  return 0;
 }
 
 export interface UsageQueryOptions {
@@ -46,8 +47,14 @@ function localDateKey(date: Date): string {
   return `${y}-${m}-${d}`;
 }
 
-function findRecentFiles(dir: string, predicate: (name: string) => boolean, maxFiles = 300): string[] {
-  const list: { p: string; mtime: number }[] = [];
+interface SessionFile {
+  path: string;
+  mtime: number;
+  version: string;
+}
+
+function findRecentFiles(dir: string, predicate: (name: string) => boolean, maxFiles: number): SessionFile[] {
+  const list: SessionFile[] = [];
   const walk = (current: string) => {
     try {
       for (const entry of fsSync.readdirSync(current, { withFileTypes: true })) {
@@ -55,7 +62,14 @@ function findRecentFiles(dir: string, predicate: (name: string) => boolean, maxF
         if (entry.isDirectory()) walk(fullPath);
         else if (predicate(entry.name)) {
           try {
-            list.push({ p: fullPath, mtime: fsSync.statSync(fullPath).mtimeMs });
+            const stat = fsSync.statSync(fullPath);
+            if (stat.isFile()) {
+              list.push({
+                path: fullPath,
+                mtime: stat.mtimeMs,
+                version: `${stat.dev}:${stat.ino}:${stat.size}:${stat.mtimeMs}:${stat.ctimeMs}`,
+              });
+            }
           } catch {}
         }
       }
@@ -63,291 +77,329 @@ function findRecentFiles(dir: string, predicate: (name: string) => boolean, maxF
   };
   walk(dir);
   list.sort((a, b) => b.mtime - a.mtime);
-  return list.slice(0, maxFiles).map((item) => item.p);
+  return list.slice(0, maxFiles);
 }
 
-async function readLines(filePath: string): Promise<string[]> {
-  const content = await fs.readFile(filePath, 'utf8');
-  return content.split('\n');
+async function* readPiUsage(file: string): AsyncIterableIterator<TokenUsageRecord> {
+  for await (const line of readJsonlLines(file)) {
+    if (!line.trim()) continue;
+    try {
+      const json = JSON.parse(line);
+      if (json.type !== 'message' || !json.message?.usage) continue;
+      const usage = json.message.usage;
+      yield {
+        timestamp: toEpoch(json.message.timestamp || json.timestamp),
+        client: 'pi',
+        provider: json.message.provider || 'antigravity',
+        model: json.message.model || 'unknown',
+        input: usage.input || 0,
+        output: usage.output || 0,
+        reasoning: usage.reasoning || 0,
+        cacheRead: usage.cacheRead || 0,
+        cacheWrite: usage.cacheWrite || 0,
+        totalTokens: usage.totalTokens || ((usage.input || 0) + (usage.output || 0)),
+        estimatedCostUsd: usage.cost?.total,
+        source: 'pi-session',
+        sessionId: file,
+      };
+    } catch {}
+  }
+}
+
+async function* readGrokUsage(file: string): AsyncIterableIterator<TokenUsageRecord> {
+  for await (const line of readJsonlLines(file)) {
+    if (!line.trim()) continue;
+    try {
+      const json = JSON.parse(line);
+      const update = json.params?.update;
+      if (update?.sessionUpdate !== 'turn_completed' || !update.usage) continue;
+      const usage = update.usage;
+      yield {
+        timestamp: toEpoch(json.timestamp),
+        client: 'grokbuild',
+        provider: 'xai',
+        model: Object.keys(usage.modelUsage || {})[0] || 'grok-4.6-build',
+        input: usage.inputTokens || 0,
+        output: usage.outputTokens || 0,
+        reasoning: usage.reasoningTokens || 0,
+        cacheRead: usage.cachedReadTokens || 0,
+        totalTokens: usage.totalTokens || ((usage.inputTokens || 0) + (usage.outputTokens || 0)),
+        estimatedCostUsd: usage.costUsdTicks ? usage.costUsdTicks * 1e-10 : undefined,
+        source: 'grok-session',
+        sessionId: file,
+      };
+    } catch {}
+  }
+}
+
+const FILE_READERS = {
+  codex: { read: readCodexSession, matches: (name: string) => name.endsWith('.jsonl'), limit: 200 },
+  pi: { read: readPiUsage, matches: (name: string) => name.endsWith('.jsonl'), limit: 400 },
+  grok: { read: readGrokUsage, matches: (name: string) => name === 'updates.jsonl', limit: 300 },
+};
+
+type SessionFileFormat = keyof typeof FILE_READERS;
+type PreparedUsageRecord = TokenUsageRecord & { id: string };
+
+interface CachedSessionFile {
+  version: string;
+  records: PreparedUsageRecord[];
+}
+
+// Only freshly parsed records are normalized here. Cached records are shared with the last scan.
+function prepareRecord(record: TokenUsageRecord): PreparedUsageRecord | null {
+  const billable = (record.totalTokens || 0) + (record.input || 0) + (record.output || 0)
+    + (record.cacheRead || 0) + (record.cacheWrite || 0);
+  if (!record.timestamp || !Number.isFinite(record.timestamp) || !Number.isFinite(billable) || billable <= 0) return null;
+  if (typeof record.model !== 'string' || typeof record.provider !== 'string') return null;
+  record.id = usageRecordId(record);
+  record.input ||= 0;
+  record.output ||= 0;
+  record.reasoning = Number.isFinite(record.reasoning) ? record.reasoning : 0;
+  record.cacheRead ||= 0;
+  record.cacheWrite ||= 0;
+  if (typeof record.estimatedCostUsd !== 'number' || !Number.isFinite(record.estimatedCostUsd) || record.estimatedCostUsd <= 0) {
+    record.estimatedCostUsd = undefined;
+    record.estimatedCostUsd = estimateCost(record);
+  }
+  return record as PreparedUsageRecord;
+}
+
+interface UsageSource {
+  format: UsageLogFormat;
+  roots: string[];
+  harnessName?: string;
+  harnessSourceId?: string;
+  status: ScanSourceStatus;
+  errors: number;
+}
+
+type ReconcileUsage = (records: TokenUsageRecord[]) => TokenUsageRecord[];
+
+function isDirectory(root: string): boolean {
+  try { return fsSync.statSync(root).isDirectory(); } catch { return false; }
+}
+
+function createSource(format: UsageLogFormat, id: string, label: string, roots: string[], harnessSourceId?: string): UsageSource {
+  return {
+    format,
+    roots,
+    harnessName: harnessSourceId ? label : undefined,
+    harnessSourceId,
+    status: {
+      id, label, path: roots.join('，'),
+      exists: roots.some(isDirectory),
+      filesScanned: 0, records: 0,
+    },
+    errors: 0,
+  };
+}
+
+function canonicalRoot(root: string): string {
+  try { return fsSync.realpathSync.native(root); } catch { return root; }
+}
+
+function findSource(file: string, sources: UsageSource[]): UsageSource | undefined {
+  let closest: UsageSource | undefined;
+  let closestLength = -1;
+  for (const source of sources) {
+    for (const root of source.roots) {
+      const relative = path.relative(root, file);
+      if (!path.isAbsolute(relative) && relative !== '..' && !relative.startsWith(`..${path.sep}`) && root.length > closestLength) {
+        closest = source;
+        closestLength = root.length;
+      }
+    }
+  }
+  return closest;
 }
 
 class UsageStore {
   private records: TokenUsageRecord[] = [];
   private lastSyncTime = 0;
   private inflightSync: Promise<number> | null = null;
+  private inflightPaths: RuntimePaths | null = null;
   private scanSources: ScanSourceStatus[] = [];
+  private pendingSources: ScanSourceStatus[] = [];
+  private activeSourceCount = 0;
+  private readonly scanListeners = new Set<(progress: UsageScanProgress) => void>();
+  private readonly fileCaches: Record<SessionFileFormat, Map<string, CachedSessionFile>> = {
+    codex: new Map(),
+    pi: new Map(),
+    grok: new Map(),
+  };
 
   private noteSource(status: ScanSourceStatus): void {
-    this.scanSources = this.scanSources.filter((item) => item.id !== status.id).concat(status);
+    this.pendingSources.push(status);
+    this.publishScanProgress();
   }
 
-  public async sync(): Promise<number> {
-    if (this.inflightSync) return this.inflightSync;
-    this.inflightSync = this.runSync().finally(() => {
+  private scanProgress(): UsageScanProgress {
+    return {
+      running: this.activeSourceCount > 0,
+      completedSources: this.activeSourceCount > 0 ? this.pendingSources.length : 0,
+      totalSources: this.activeSourceCount,
+      lastSyncTime: this.lastSyncTime,
+    };
+  }
+
+  private publishScanProgress(): void {
+    if (this.scanListeners.size === 0) return;
+    const progress = this.scanProgress();
+    for (const listener of this.scanListeners) listener(progress);
+  }
+
+  public subscribeScanProgress(listener: (progress: UsageScanProgress) => void): () => void {
+    this.scanListeners.add(listener);
+    listener(this.scanProgress());
+    return () => { this.scanListeners.delete(listener); };
+  }
+
+  public async sync(reconcile: ReconcileUsage): Promise<number> {
+    const paths = CONFIG.paths;
+    if (this.inflightSync) {
+      if (this.inflightPaths === paths) return this.inflightSync;
+      // A save during a scan must collect the updated directories before reporting success.
+      await this.inflightSync.catch(() => {});
+      return this.sync(reconcile);
+    }
+    this.inflightPaths = paths;
+    this.inflightSync = this.runSync(paths, reconcile).finally(() => {
       this.inflightSync = null;
+      this.inflightPaths = null;
+      this.activeSourceCount = 0;
+      this.publishScanProgress();
     });
     return this.inflightSync;
   }
 
-  public async ensureReady(): Promise<void> {
-    if (this.lastSyncTime > 0) return;
-    await this.sync();
-  }
-
-  private async runSync(): Promise<number> {
+  private async runSync(paths: RuntimePaths, reconcile: ReconcileUsage): Promise<number> {
     const loadedRecords: TokenUsageRecord[] = [];
     const seenSignatures = new Set<string>();
-    this.scanSources = [];
+    this.pendingSources = [];
 
-    const addRecord = (rec: TokenUsageRecord): boolean => {
-      const billable = (rec.totalTokens || 0) + (rec.input || 0) + (rec.output || 0) + (rec.cacheRead || 0) + (rec.cacheWrite || 0);
-      if (!rec.timestamp || !Number.isFinite(rec.timestamp) || billable <= 0) return false;
-      const sig = rec.id || `${rec.client ?? 'unknown'}_${rec.timestamp}_${rec.totalTokens}_${rec.model}`;
-      if (seenSignatures.has(sig)) return false;
-      seenSignatures.add(sig);
-
-      const incomingCost = rec.estimatedCostUsd;
-      rec.id = rec.id || sig;
-      rec.input = rec.input || 0;
-      rec.output = rec.output || 0;
-      rec.reasoning = rec.reasoning || 0;
-      rec.cacheRead = rec.cacheRead || 0;
-      rec.cacheWrite = rec.cacheWrite || 0;
-      rec.estimatedCostUsd = typeof incomingCost === 'number' && incomingCost > 0
-        ? incomingCost
-        : estimateCost({ ...rec, estimatedCostUsd: undefined });
-      loadedRecords.push(rec);
-      return true;
+    const addRecord = (record: PreparedUsageRecord, source: UsageSource): void => {
+      if (seenSignatures.has(record.id)) return;
+      seenSignatures.add(record.id);
+      const { harnessName, harnessSourceId } = source;
+      loadedRecords.push(harnessSourceId ? { ...record, harnessName, harnessSourceId } : record);
+      source.status.records += 1;
     };
 
-    await Promise.all([
-      this.ingestPiSessions(addRecord),
-      this.ingestGrokSessions(addRecord),
-      this.ingestCodexSessions(addRecord),
-      this.ingestClaudeSessions(addRecord),
-      this.ingestAntigravitySessions(addRecord),
-    ]);
+    const builtins = [
+      createSource('pi', 'pi-session', 'Pi 会话', [path.join(paths.piAgent, 'sessions')]),
+      createSource('grok', 'grok', 'Grok 会话', [paths.grokSessions]),
+      createSource('codex', 'codex', 'Codex 会话', [paths.codexSessions]),
+      createSource('claude', 'claude', 'Claude 对话', paths.claudeProjectsAll),
+      createSource('antigravity', 'antigravity', 'Antigravity 会话', paths.antigravityBrainAll),
+    ];
+    const custom = paths.customUsageSources.map((source) =>
+      createSource(source.format, `custom:${source.id}`, source.harnessName, source.roots, source.id));
+    this.activeSourceCount = builtins.length + custom.length;
+    this.publishScanProgress();
+    await Promise.all(builtins.map((builtin) => {
+      const matching = custom.filter((source) => source.format === builtin.format);
+      const group = [builtin, ...matching];
+      if (matching.length > 0) {
+        for (const source of group) source.roots = source.roots.map(canonicalRoot);
+      }
+      return this.scanGroup(group, addRecord);
+    }));
 
-    loadedRecords.sort((a, b) => b.timestamp - a.timestamp);
-    this.records = loadedRecords;
+    this.records = reconcile(loadedRecords);
+    this.scanSources = this.pendingSources;
     this.lastSyncTime = Date.now();
     return this.records.length;
   }
 
-  private async ingestPiSessions(addRecord: (rec: TokenUsageRecord) => boolean): Promise<void> {
-    const piSessionsDir = path.join(CONFIG.paths.piAgent, 'sessions');
-    const status: ScanSourceStatus = {
-      id: 'pi-session',
-      label: 'Pi 会话',
-      path: piSessionsDir,
-      exists: false,
-      filesScanned: 0,
-      records: 0,
+  private async scanGroup(sources: UsageSource[], addRecord: (record: PreparedUsageRecord, source: UsageSource) => void): Promise<void> {
+    const [builtin, ...custom] = sources;
+    const format = builtin.format;
+    const directories = Array.from(new Set(sources.flatMap((source) => source.roots)));
+    const owners = new Map<string, UsageSource>();
+    const observer: UsageScanObserver = {
+      onFile: (file) => {
+        const source = findSource(file, custom) ?? builtin;
+        owners.set(file, source);
+        source.status.filesScanned += 1;
+      },
+      onFileError: (file) => {
+        const source = owners.get(file) ?? builtin;
+        source.errors += 1;
+      },
+      onRecord: (record, file) => {
+        const prepared = prepareRecord(record);
+        if (prepared) addRecord(prepared, owners.get(file) ?? builtin);
+      },
     };
     try {
-      if (!fsSync.existsSync(piSessionsDir)) {
-        this.noteSource(status);
-        return;
-      }
-      status.exists = true;
-      const files = findRecentFiles(piSessionsDir, (name) => name.endsWith('.jsonl'), 400);
-      status.filesScanned = files.length;
-
-      for (const filePath of files) {
-        try {
-          const lines = await readLines(filePath);
-          for (const line of lines) {
-            if (!line.trim()) continue;
-            try {
-              const json = JSON.parse(line);
-              if (json.type !== 'message' || !json.message?.usage) continue;
-              const usage = json.message.usage;
-              if (addRecord({
-                timestamp: toEpoch(json.message.timestamp || json.timestamp),
-                client: 'pi',
-                provider: json.message.provider || 'antigravity',
-                model: json.message.model || 'unknown',
-                input: usage.input || 0,
-                output: usage.output || 0,
-                reasoning: usage.reasoning || 0,
-                cacheRead: usage.cacheRead || 0,
-                cacheWrite: usage.cacheWrite || 0,
-                totalTokens: usage.totalTokens || ((usage.input || 0) + (usage.output || 0)),
-                estimatedCostUsd: usage.cost?.total,
-                source: 'pi-session',
-                sessionId: filePath,
-              })) status.records += 1;
-            } catch {}
+      if (format === 'claude' || format === 'antigravity') {
+        const result = format === 'claude'
+          ? scanClaudeConversations(directories, observer)
+          : scanAntigravitySessions(directories, observer);
+        for (const source of sources) {
+          if (!source.status.exists) continue;
+          source.status.noteCodes = ['dedupe'];
+          if (result.truncated) {
+            const note = custom.length > 0 ? 'format-truncated' : 'truncated';
+            source.status.noteCodes.push(`${note}:${result.filesScanned}`);
           }
-        } catch {}
+        }
+      } else {
+        await this.scanSessionFiles(format, builtin, custom, addRecord);
+      }
+    } catch (error) {
+      for (const source of sources) source.status.note = (error as Error).message;
+    }
+    for (const source of sources) {
+      const { status } = source;
+      if (source.errors) (status.noteCodes ??= []).push(`errors:${source.errors}`);
+      if (source.harnessName && status.exists && status.records === 0 && !status.note) {
+        (status.noteCodes ??= []).push('no-usage');
       }
       this.noteSource(status);
-    } catch (err) {
-      status.note = (err as Error).message;
-      this.noteSource(status);
-      console.warn('[UsageStore] Could not read native pi sessions:', (err as Error).message);
     }
   }
 
-  private async ingestGrokSessions(addRecord: (rec: TokenUsageRecord) => boolean): Promise<void> {
-    const grokDir = CONFIG.paths.grokSessions;
-    const status: ScanSourceStatus = {
-      id: 'grok',
-      label: 'Grok 会话',
-      path: grokDir,
-      exists: false,
-      filesScanned: 0,
-      records: 0,
-    };
-    try {
-      if (!fsSync.existsSync(grokDir)) {
-        this.noteSource(status);
-        return;
-      }
-      status.exists = true;
-      const files = findRecentFiles(grokDir, (name) => name === 'updates.jsonl', 300);
-      status.filesScanned = files.length;
-
-      for (const filePath of files) {
-        try {
-          const lines = await readLines(filePath);
-          for (const line of lines) {
-            if (!line.trim()) continue;
-            try {
-              const json = JSON.parse(line);
-              if (json.params?.update?.sessionUpdate !== 'turn_completed' || !json.params?.update?.usage) continue;
-              const usage = json.params.update.usage;
-              const model = Object.keys(usage.modelUsage || {})[0] || 'grok-4.6-build';
-              if (addRecord({
-                timestamp: toEpoch(json.timestamp),
-                client: 'grokbuild',
-                provider: 'xai',
-                model,
-                input: usage.inputTokens || 0,
-                output: usage.outputTokens || 0,
-                reasoning: usage.reasoningTokens || 0,
-                cacheRead: usage.cachedReadTokens || 0,
-                totalTokens: usage.totalTokens || ((usage.inputTokens || 0) + (usage.outputTokens || 0)),
-                estimatedCostUsd: usage.costUsdTicks ? usage.costUsdTicks * 1e-10 : undefined,
-                source: 'grok-session',
-                sessionId: filePath,
-              })) status.records += 1;
-            } catch {}
-          }
-        } catch {}
-      }
-      this.noteSource(status);
-    } catch (err) {
-      status.note = (err as Error).message;
-      this.noteSource(status);
-      console.warn('[UsageStore] Could not read grok sessions:', (err as Error).message);
+  private async scanSessionFiles(
+    format: SessionFileFormat,
+    builtin: UsageSource,
+    custom: UsageSource[],
+    addRecord: (record: PreparedUsageRecord, source: UsageSource) => void,
+  ): Promise<void> {
+    const scanner = FILE_READERS[format];
+    const roots = new Set([...custom, builtin].flatMap((source) => source.roots));
+    const files = new Map<string, SessionFile>();
+    for (const root of roots) {
+      for (const file of findRecentFiles(root, scanner.matches, scanner.limit)) files.set(file.path, file);
     }
-  }
-
-  private async ingestCodexSessions(addRecord: (rec: TokenUsageRecord) => boolean): Promise<void> {
-    const codexDir = CONFIG.paths.codexSessions;
-    const status: ScanSourceStatus = {
-      id: 'codex',
-      label: 'Codex 会话',
-      path: codexDir,
-      exists: false,
-      filesScanned: 0,
-      records: 0,
-    };
-    try {
-      if (!fsSync.existsSync(codexDir)) {
-        this.noteSource(status);
-        return;
-      }
-      status.exists = true;
-      const files = findRecentFiles(codexDir, (name) => name.endsWith('.jsonl'), 200);
-      status.filesScanned = files.length;
-
-      for (const filePath of files) {
-        try {
-          const lines = await readLines(filePath);
-          for (const record of parseCodexSession(lines, filePath)) {
-            if (addRecord(record)) status.records += 1;
-          }
-        } catch {}
-      }
-      this.noteSource(status);
-    } catch (err) {
-      status.note = (err as Error).message;
-      this.noteSource(status);
-      console.warn('[UsageStore] Could not read codex sessions:', (err as Error).message);
+    const cache = this.fileCaches[format];
+    for (const file of cache.keys()) {
+      if (!files.has(file)) cache.delete(file);
     }
-  }
 
-  private async ingestClaudeSessions(addRecord: (rec: TokenUsageRecord) => boolean): Promise<void> {
-    const dirs = CONFIG.paths.claudeProjectsAll;
-    const status: ScanSourceStatus = {
-      id: 'claude',
-      label: 'Claude 对话',
-      path: dirs.join('，'),
-      exists: false,
-      filesScanned: 0,
-      records: 0,
-    };
-    try {
-      const scanned = scanClaudeConversations(dirs);
-      status.exists = scanned.exists;
-      status.filesScanned = scanned.filesScanned;
-      for (const record of scanned.records) {
-        if (addRecord(record)) status.records += 1;
+    for (const [file, { version }] of files) {
+      const source = findSource(file, custom) ?? builtin;
+      source.status.filesScanned += 1;
+      const cached = cache.get(file);
+      if (cached?.version === version) {
+        for (const record of cached.records) addRecord(record, source);
+        continue;
       }
-      const notes = ['Deduplicated per message, including sub-agents'];
-      status.noteCodes = ['dedupe'];
-      if (scanned.truncated) {
-        notes.push(`Only the latest ${scanned.filesScanned} files kept`);
-        status.noteCodes.push(`truncated:${scanned.filesScanned}`);
-      }
-      if (scanned.errors > 0) {
-        notes.push(`${scanned.errors} files could not be read`);
-        status.noteCodes.push(`errors:${scanned.errors}`);
-      }
-      status.note = notes.join('; ');
-      this.noteSource(status);
-    } catch (err) {
-      status.note = (err as Error).message;
-      this.noteSource(status);
-      console.warn('[UsageStore] Could not read claude sessions:', (err as Error).message);
-    }
-  }
 
-  private async ingestAntigravitySessions(addRecord: (rec: TokenUsageRecord) => boolean): Promise<void> {
-    const dirs = CONFIG.paths.antigravityBrainAll;
-    const status: ScanSourceStatus = {
-      id: 'antigravity',
-      label: 'Antigravity 会话',
-      path: dirs.join('，'),
-      exists: false,
-      filesScanned: 0,
-      records: 0,
-    };
-    try {
-      const scanned = scanAntigravitySessions(dirs);
-      status.exists = scanned.exists;
-      status.filesScanned = scanned.filesScanned;
-      for (const record of scanned.records) {
-        if (addRecord(record)) status.records += 1;
+      cache.delete(file);
+      const records: PreparedUsageRecord[] = [];
+      try {
+        for await (const record of await scanner.read(file)) {
+          const prepared = prepareRecord(record);
+          if (!prepared) continue;
+          records.push(prepared);
+          addRecord(prepared, source);
+        }
+        cache.set(file, { version, records });
+      } catch {
+        source.errors += 1;
       }
-      const notes = ['Deduplicated per message, including sub-agents'];
-      status.noteCodes = ['dedupe'];
-      if (scanned.truncated) {
-        notes.push(`Only the latest ${scanned.filesScanned} files kept`);
-        status.noteCodes.push(`truncated:${scanned.filesScanned}`);
-      }
-      if (scanned.errors > 0) {
-        notes.push(`${scanned.errors} files could not be read`);
-        status.noteCodes.push(`errors:${scanned.errors}`);
-      }
-      status.note = notes.join('; ');
-      this.noteSource(status);
-    } catch (err) {
-      status.note = (err as Error).message;
-      this.noteSource(status);
-      console.warn('[UsageStore] Could not read antigravity sessions:', (err as Error).message);
     }
   }
 
@@ -517,7 +569,7 @@ class UsageStore {
   }
 
   public getByClient(range: UsageRange = '7d', options?: UsageQueryOptions): GroupedUsage[] {
-    return this.groupRecords(this.selectRecords(range, options), (record) => record.client || 'unknown');
+    return this.groupRecords(this.selectRecords(range, options), usageClientName);
   }
 
   public getSpeed(range: UsageRange = '7d', options?: UsageQueryOptions): SpeedReport {
@@ -531,11 +583,6 @@ class UsageStore {
 
   public getAllRecords(): TokenUsageRecord[] {
     return this.records;
-  }
-
-  public replaceRecords(records: TokenUsageRecord[], syncedAt = Date.now()): void {
-    this.records = records;
-    this.lastSyncTime = syncedAt;
   }
 
   public getLastSyncTime(): number {

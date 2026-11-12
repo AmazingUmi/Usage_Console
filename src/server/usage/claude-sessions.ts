@@ -1,6 +1,7 @@
 import fs from 'node:fs';
 import path from 'node:path';
-import type { TokenUsageRecord } from './types.js';
+import { readJsonlLinesSync } from './jsonl.js';
+import type { TokenUsageRecord, UsageScanObserver } from './types.js';
 
 const MAX_FILES = 4000;
 const MAX_FILE_BYTES = 80 * 1024 * 1024;
@@ -137,10 +138,9 @@ function parseFile(filePath: string): ParsedClaudeMessage[] {
 
   const messages = new Map<string, ParsedClaudeMessage>();
   let sessionId: string | undefined;
-  const content = fs.readFileSync(filePath, 'utf8');
-  const lines = content.split('\n');
-  for (let index = 0; index < lines.length; index += 1) {
-    const line = lines[index];
+  let index = -1;
+  for (const line of readJsonlLinesSync(filePath)) {
+    index += 1;
     if (!line.trim()) continue;
     let json: Record<string, unknown>;
     try {
@@ -148,6 +148,7 @@ function parseFile(filePath: string): ParsedClaudeMessage[] {
     } catch {
       continue;
     }
+    if (!json || typeof json !== 'object') continue;
     if (!sessionId && typeof json.sessionId === 'string') sessionId = json.sessionId;
     if (json.type !== 'assistant' || !json.message || typeof json.message !== 'object') continue;
 
@@ -189,7 +190,7 @@ function parseFile(filePath: string): ParsedClaudeMessage[] {
   return result;
 }
 
-export function scanClaudeConversations(roots: string | string[]): ClaudeScanResult {
+export function scanClaudeConversations(roots: string | string[], observer?: UsageScanObserver): ClaudeScanResult {
   const existing = (Array.isArray(roots) ? roots : [roots]).filter((root) => root && fs.existsSync(root));
   if (existing.length === 0) {
     return { records: [], filesScanned: 0, exists: false, truncated: false, errors: 0 };
@@ -217,33 +218,39 @@ export function scanClaudeConversations(roots: string | string[]): ClaudeScanRes
     if (!seen.has(key)) fileCache.delete(key);
   }
 
-  const byId = new Map<string, ParsedClaudeMessage>();
+  const byId = new Map<string, { message: ParsedClaudeMessage; file: string }>();
   let errors = 0;
   for (const file of files) {
+    observer?.onFile(file);
     try {
       for (const message of parseFile(file)) {
-        if (preferMessage(message, byId.get(message.id))) byId.set(message.id, message);
+        if (preferMessage(message, byId.get(message.id)?.message)) byId.set(message.id, { message, file });
       }
     } catch {
       errors += 1;
+      observer?.onFileError(file);
     }
   }
 
-  const records: TokenUsageRecord[] = Array.from(byId.values()).map((message) => ({
-    id: `claude:${message.id}`,
-    timestamp: message.timestamp,
-    client: 'claude',
-    provider: 'anthropic',
-    model: message.model,
-    input: message.input,
-    output: message.output,
-    reasoning: message.reasoning,
-    cacheRead: message.cacheRead,
-    cacheWrite: message.cacheWrite,
-    totalTokens: message.input + message.output,
-    source: 'claude-session',
-    sessionId: message.sessionId,
-  }));
+  const records = Array.from(byId.values()).map(({ message, file }) => {
+    const record: TokenUsageRecord = {
+      id: `claude:${message.id}`,
+      timestamp: message.timestamp,
+      client: 'claude',
+      provider: 'anthropic',
+      model: message.model,
+      input: message.input,
+      output: message.output,
+      reasoning: message.reasoning,
+      cacheRead: message.cacheRead,
+      cacheWrite: message.cacheWrite,
+      totalTokens: message.input + message.output,
+      source: 'claude-session',
+      sessionId: message.sessionId,
+    };
+    observer?.onRecord(record, file);
+    return record;
+  });
 
   return {
     records,

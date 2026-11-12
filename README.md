@@ -154,7 +154,11 @@ node bin/usage-console.js menubar
 | **Pi** | `~/.pi/agent/sessions` |
 | **Grok** | `~/.grok/sessions` |
 
-如您的工作路径不同，可在「设置 → 路径」中按需添加或修改自定义扫描目录。
+「设置 → 数据与扫描路径」可修改默认路径，也可添加额外目录。每个额外目录需要指定 Harness 名称和已有的会话格式。名称用于「软件」归类，格式决定如何提取 Token 用量。「最近扫描」显示各来源的用量条数。
+
+服务每 10 分钟扫描一次，并复用未变化日志的解析结果。首次查看用量时若还没有缓存，会先扫描一次。「刷新」可立即同步，用量区域会显示已处理的数据源数。
+
+已采集的用量保存在本地账本。删除原始会话或移除扫描目录后，历史用量仍计入统计。
 
 #### 3. 网络代理配置
 
@@ -359,6 +363,12 @@ Local token analysis parses local files directly and **does not require provider
 - **Antigravity**: `~/.gemini/antigravity/brain` & `~/.gemini/antigravity-cli/brain`
 - **Pi**: `~/.pi/agent/sessions`
 - **Grok**: `~/.grok/sessions`
+
+Use **Settings → Data & scan paths** to change the defaults or add extra directories. Select a supported session format and enter a harness name for each extra directory. The dashboard groups usage by harness name, and **Last scan** shows the record count for each source.
+
+The service scans every 10 minutes and reuses parsed results for unchanged logs. The first usage request starts a scan if there is no cached result. Use **Refresh** to scan immediately. The usage section shows progress by source.
+
+Collected usage is kept in the local ledger and still counts after a session file or scan directory is removed.
 
 #### 3. Network Proxy
 Configure under **Settings → Network proxy**:

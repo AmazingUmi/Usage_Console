@@ -1,4 +1,5 @@
-import React, { useEffect, useMemo, useState } from 'react';
+import React, { useEffect, useMemo, useRef, useState } from 'react';
+import { USAGE_LOG_FORMATS, type CustomUsageSource, type UsageLogFormat } from '../../server/usage/types';
 import type { AccountType, ConsoleSettings, PathSettings, QuotaState, ScanSourceStatus } from '../types';
 import { calibrateData, deleteAccount, saveSettings } from '../api';
 import { ACCOUNT_TYPE_LABEL } from '../lib/providers';
@@ -30,6 +31,14 @@ const PATH_KEYS: Array<keyof PathSettings> = [
   'antigravityDir',
 ];
 const LANGS: Lang[] = ['zh', 'en'];
+const LOG_FORMAT_LABELS: Record<UsageLogFormat, string> = {
+  codex: 'Codex',
+  claude: 'Claude Code',
+  pi: 'Pi',
+  grok: 'Grok Build',
+  antigravity: 'Antigravity',
+};
+type CustomSourceDraft = Omit<CustomUsageSource, 'format'> & { format: UsageLogFormat | '' };
 /** Types that read quota through a login held by this console. */
 const LOGIN_TYPES = new Set<AccountType>(['gpt', 'claude', 'grok']);
 
@@ -65,6 +74,8 @@ export const SettingsPage: React.FC<SettingsPageProps> = ({ open, onToggle, sett
   const [pane, setPane] = useState<Pane>('accounts');
   useEffect(() => { if (paneRequest) setPane(paneRequest.pane); }, [paneRequest]);
   const [draft, setDraft] = useState<PathSettings | null>(settings?.paths ?? null);
+  const [customSources, setCustomSources] = useState<CustomSourceDraft[]>(settings?.customUsageSources ?? []);
+  const draftSourceNumber = useRef(0);
   const [savingPaths, setSavingPaths] = useState(false);
   const [savingHide, setSavingHide] = useState(false);
   const [calibrating, setCalibrating] = useState(false);
@@ -72,20 +83,26 @@ export const SettingsPage: React.FC<SettingsPageProps> = ({ open, onToggle, sett
   const [message, setMessage] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
 
+  const savedPaths = settings?.paths;
+  const savedSources = settings?.customUsageSources;
+  const savedDataDir = settings?.dataDir;
   useEffect(() => {
-    if (settings) {
-      setDraft(settings.paths);
-      setDataDir(settings.dataDir || '');
+    if (savedPaths && savedSources) {
+      setDraft(savedPaths);
+      setCustomSources(savedSources);
+      setDataDir(savedDataDir || '');
     }
-  }, [settings]);
+  }, [savedPaths, savedSources, savedDataDir]);
 
   // A status message belongs to the pane it came from.
   useEffect(() => { setMessage(null); setError(null); }, [pane]);
 
   const dirty = useMemo(() => {
     if (!settings || !draft) return false;
-    return !samePaths(draft, settings.paths) || dataDir.trim() !== (settings.dataDir || '').trim();
-  }, [draft, dataDir, settings]);
+    return !samePaths(draft, settings.paths)
+      || dataDir.trim() !== (settings.dataDir || '').trim()
+      || JSON.stringify(customSources) !== JSON.stringify(settings.customUsageSources);
+  }, [draft, dataDir, customSources, settings]);
 
   const run = async (task: () => Promise<void>) => {
     setError(null);
@@ -116,15 +133,30 @@ export const SettingsPage: React.FC<SettingsPageProps> = ({ open, onToggle, sett
 
   const savePaths = () => run(async () => {
     if (!draft) return;
+    const customUsageSources = customSources.map((source): CustomUsageSource => {
+      if (!source.format || !source.harnessName.trim() || !source.directory.trim()) {
+        throw new Error(t('settings.customSource.required'));
+      }
+      return { ...source, format: source.format };
+    });
     setSavingPaths(true);
     try {
-      const result = await saveSettings({ paths: draft, dataDir, rescan: true });
+      const result = await saveSettings({ paths: draft, dataDir, customUsageSources, rescan: true });
       onSaved(result.settings, result.quota);
       setMessage(t('settings.pathsSaved'));
     } finally {
       setSavingPaths(false);
     }
   });
+
+  const updateCustomSource = (id: string, patch: Partial<Omit<CustomSourceDraft, 'id'>>) => {
+    setCustomSources((sources) => sources.map((source) => source.id === id ? { ...source, ...patch } : source));
+  };
+
+  const addCustomSource = () => {
+    const id = `draft-${draftSourceNumber.current++}`;
+    setCustomSources((sources) => [...sources, { id, harnessName: '', directory: '', format: '' }]);
+  };
 
   const calibrate = () => run(async () => {
     setCalibrating(true);
@@ -292,6 +324,64 @@ export const SettingsPage: React.FC<SettingsPageProps> = ({ open, onToggle, sett
               <ListRow stacked title={t('settings.dataDir')} help={t('settings.dataDirHint')} htmlFor="data-dir">
                 <input id="data-dir" className="input mono" value={dataDir} spellCheck={false} onChange={(event) => setDataDir(event.target.value)} />
               </ListRow>
+            </ListGroup>
+            <ListGroup label={t('settings.customSource.title')} footer={t('settings.customSource.hint')}>
+              {customSources.map((source) => (
+                <div key={source.id} className="list-row custom-source-fields">
+                  <label>
+                    <span>{t('settings.customSource.name')}</span>
+                    <input
+                      className="input"
+                      value={source.harnessName}
+                      maxLength={80}
+                      disabled={savingPaths}
+                      onChange={(event) => updateCustomSource(source.id, { harnessName: event.target.value })}
+                    />
+                  </label>
+                  <label>
+                    <span>{t('settings.customSource.format')}</span>
+                    <select
+                      className="input"
+                      value={source.format}
+                      disabled={savingPaths}
+                      onChange={(event) => updateCustomSource(source.id, { format: event.target.value as CustomSourceDraft['format'] })}
+                    >
+                      <option value="" disabled>{t('settings.customSource.chooseFormat')}</option>
+                      {USAGE_LOG_FORMATS.map((format) => <option key={format} value={format}>{LOG_FORMAT_LABELS[format]}</option>)}
+                    </select>
+                  </label>
+                  <div className="custom-source-path">
+                    <label>
+                      <span>{t('settings.customSource.directory')}</span>
+                      <input
+                        className="input mono"
+                        value={source.directory}
+                        spellCheck={false}
+                        disabled={savingPaths}
+                        onChange={(event) => updateCustomSource(source.id, { directory: event.target.value })}
+                      />
+                    </label>
+                    <button
+                      type="button"
+                      className="btn btn-sm btn-ghost btn-danger"
+                      disabled={savingPaths}
+                      onClick={() => setCustomSources((sources) => sources.filter(({ id }) => id !== source.id))}
+                    >
+                      {t('settings.remove')}
+                    </button>
+                  </div>
+                </div>
+              ))}
+              <div className="list-row">
+                <button
+                  type="button"
+                  className="btn btn-sm"
+                  disabled={savingPaths}
+                  onClick={addCustomSource}
+                >
+                  <Icon name="plus" size={13} />{t('settings.customSource.add')}
+                </button>
+              </div>
             </ListGroup>
             <ListGroup label={t('settings.group.sources')} footer={t('settings.pathsHint')}>
               {PATH_KEYS.map((key) => {
