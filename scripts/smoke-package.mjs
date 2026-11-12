@@ -56,6 +56,15 @@ try {
   const entry = path.join(temp, 'install', modules, pkg.name, 'bin/usage-console.js');
   const version = execFileSync(process.execPath, [entry, '--version'], { cwd: temp, env, encoding: 'utf8', timeout: 5000 });
   assert.equal(version.trim(), pkg.version);
+  const helper = path.resolve(path.dirname(entry), '../dist/native/UsageConsoleMenuBar');
+  if (process.platform === 'darwin' && fs.existsSync(helper)) {
+    fs.accessSync(helper, fs.constants.X_OK);
+    execFileSync('/usr/bin/codesign', ['--verify', '--strict', helper], { timeout: 5000 });
+    await assert.rejects(
+      execFileAsync(helper, [], { cwd: temp, env, timeout: 5000 }),
+      (err) => err.code === 1 && /Invalid arguments for the Usage Console menu bar helper/.test(err.stdout),
+    );
+  }
   const reservation = net.createServer();
   await new Promise((resolve, reject) => {
     reservation.once('error', reject);
@@ -111,6 +120,10 @@ try {
   assert.ok(payload.rows.some(row => row.action === 'refresh'));
   assert.ok(Buffer.from(payload.image, 'base64').toString().startsWith('%PDF-1.4'));
   assert.ok(!payload.rows.some(row => /Offline/.test(row.title)));
+  const direct = await get(`${url}/api/menubar?lang=en`);
+  assert.equal(direct.status, 200);
+  assert.match(direct.type, /application\/json/);
+  assert.deepEqual(JSON.parse(direct.body), payload);
   console.log(`Installed ${pkg.name}@${pkg.version}: CLI, health, HTML, JS, CSS and native menu data passed (isolated HOME).`);
 } finally {
   agent.destroy();

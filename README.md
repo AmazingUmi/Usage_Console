@@ -59,6 +59,7 @@
 
 #### 系统要求
 - **Node.js 20+**（推荐 Node.js 22 或 24 LTS）。使用者无需安装 pnpm 或克隆源码。
+- 网页看板支持 macOS、Linux 和 Windows。原生菜单栏仅在 macOS 提供。
 
 #### 安装与启动
 
@@ -90,15 +91,17 @@ npm install -g usage-console@latest
 
 ### 🖥️ macOS 原生菜单栏助手
 
-Usage Console 附带纯原生 macOS 状态栏辅助程序，在屏幕右上角以精致的 16pt 空心圆环实时显示账户剩余额度，无需打包重量级 `.app` 或购买开发者证书。
+Usage Console 在 macOS 菜单栏用 16pt 圆环显示账户剩余额度。npm 发行包内置预编译助手，支持 Apple Silicon 和 macOS 13 及以上的 Intel Mac。
 
 #### 前置要求
-首次使用前请安装 macOS Command Line Tools：
+从源码运行或使用较早的 Intel macOS 时，需要安装 macOS Command Line Tools：
 ```bash
 xcode-select --install
 ```
 
 #### 启动菜单栏
+
+一条命令即可启动菜单栏和本地服务。相同地址已有 Usage Console 服务时会复用它。需要查看统计或设置时，从菜单选择「打开完整看板」。
 
 ```bash
 # 方式 1：通过 npm 全局命令启动（推荐）
@@ -113,11 +116,11 @@ node bin/usage-console.js menubar
 - **圆环指示**：圆弧代表 5 小时 / 7 天窗口中较低的剩余比例；未知值呈现虚线，额度紧张时标记醒目圆点。
 - **账户选择**：默认显示首个账户。点击「显示账户」菜单可自由勾选任意组合或「全部显示」，选项自动持久化。
 - **快捷交互**：点击圆环可展开详情列表，展示各账户剩余百分比与重置倒计时；一键「打开完整看板」或「刷新显示」。
-- **运行机制**：原生助手独立常驻并每 60 秒轮询本机服务。**必须保持 Usage Console 本地服务运行**。关闭菜单栏请在下拉菜单中点击「退出菜单栏」。
+- **运行机制**：助手常驻并约每 60 秒直接读取本机菜单数据。「退出菜单栏」会关闭它启动的服务。单独启动的服务由原启动命令管理。
 
 | 命令行选项 | 说明 |
 | --- | --- |
-| `--url <URL>` | 本机控制台服务地址，默认 `http://127.0.0.1:3001`（仅允许回环地址） |
+| `--url <URL>` | 连接已运行的本机服务（仅允许回环地址）。自动启动默认端口为 `3001`，可用 `CONSOLE_PORT` 指定 |
 | `--lang <zh\|en>` | 界面语言，默认 `zh` |
 | `--account <ID>` | 初始显示单个指定账户 |
 | `--accounts all` | 初始显示全部已配置账户 |
@@ -251,7 +254,7 @@ node scripts/smoke-package.mjs "$RELEASE_DIR/package.tgz"
 
 ### 📦 发布与维护
 
-- **CI 工作流**（`ci.yml`）：覆盖 Linux、macOS、Windows 三大平台与 Node 20 / 22 / 24 矩阵，执行静态类型检查、测试用例与安全审计。
+- **CI 工作流**（`ci.yml`）：覆盖 Linux、macOS、Windows 与 Node 20 / 22 / 24，验证服务启动和复用，并在 macOS runner 上编译 Swift 菜单栏助手。
 - **发布工作流**（`publish.yml`）：仅在推送 `v*` 版本标签时触发。采用 npm 官方 **Trusted Publishing (OIDC)** 自动化发布，无需手动维护长期发布令牌。
 - 详细流程请查阅 [发布指南 (docs/RELEASING.md)](https://github.com/AmazingUmi/Usage_Console/blob/main/docs/RELEASING.md)。
 
@@ -276,6 +279,7 @@ node scripts/smoke-package.mjs "$RELEASE_DIR/package.tgz"
 
 #### Requirements
 - **Node.js 20+** (Node.js 22 or 24 LTS recommended). End-users do not need pnpm or a git clone.
+- The web dashboard runs on macOS, Linux, and Windows. The native menu bar is available on macOS.
 
 #### Install & Launch
 
@@ -307,15 +311,17 @@ npm install -g usage-console@latest
 
 ### 🖥️ Native macOS Menu Bar
 
-Usage Console includes a native macOS menu bar status ring compiled directly from lightweight Swift code.
+Usage Console displays a native quota ring in the macOS menu bar. The npm release includes a precompiled helper for Apple Silicon and Intel Macs on macOS 13 or later.
 
 #### Prerequisites
-Install macOS Command Line Tools before running:
+Install macOS Command Line Tools when running from a source checkout or on an Intel Mac with an earlier macOS release:
 ```bash
 xcode-select --install
 ```
 
 #### Start the Menu Bar
+
+One command starts the menu bar and starts or reuses the local service. Choose **Open dashboard** from the menu for reports and settings. **Quit menu bar** also stops the service if the menu bar started it.
 
 ```bash
 # Method 1: Via global npm package
@@ -329,7 +335,7 @@ node bin/usage-console.js menubar
 
 | Option | Description |
 | --- | --- |
-| `--url <URL>` | Local console service URL (default `http://127.0.0.1:3001`, loopback only) |
+| `--url <URL>` | Attach to an existing loopback service. Automatic startup defaults to port `3001`, configurable with `CONSOLE_PORT` |
 | `--lang <zh\|en>` | Language preference (default: `zh`) |
 | `--account <ID>` | Display a single designated account by ID |
 | `--accounts all` | Display all configured accounts |

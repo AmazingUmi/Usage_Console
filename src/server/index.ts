@@ -4,6 +4,7 @@ import { fileURLToPath, pathToFileURL } from 'node:url';
 import { resolveClientDist } from './client-dist.js';
 import { CONFIG } from './config.js';
 import { browserUrl, isLoopbackHost, isLoopbackRequestHost } from './listen.js';
+import { parseMenuBarArgs, renderMenuBar, renderMenuBarOffline } from './menubar.js';
 import { getProxyStatus, initializeProxy } from './network/proxy.js';
 import { L, langMiddleware } from './i18n.js';
 import { findAgyBinary } from './quota/agy.js';
@@ -109,7 +110,7 @@ function decorateQuota<T extends object>(state: T): T & { refreshIntervalSeconds
 
 // API Routes
 app.get('/api/health', (_req, res) => {
-  res.json({ status: 'ok', time: Date.now() });
+  res.json({ status: 'ok', time: Date.now(), app: 'usage-console' });
 });
 
 app.get('/api/proxy', async (_req, res) => {
@@ -121,12 +122,17 @@ app.get('/api/proxy', async (_req, res) => {
 });
 
 // Quota routes
+async function readCachedQuota() {
+  const quotaState = await queryAllLiveQuotas();
+  const seconds = loadSettings().quotaRefreshIntervalSeconds;
+  if (seconds > 0 && quotaAgeMs() > seconds * 1500) queryAllLiveQuotas(true).catch(() => {});
+  return quotaState;
+}
+
 app.get('/api/quota', async (req, res) => {
   try {
     const force = req.query.force === 'true';
-    const quotaState = await queryAllLiveQuotas(force);
-    const seconds = loadSettings().quotaRefreshIntervalSeconds;
-    if (!force && seconds > 0 && quotaAgeMs() > seconds * 1500) queryAllLiveQuotas(true).catch(() => {});
+    const quotaState = force ? await queryAllLiveQuotas(true) : await readCachedQuota();
     res.set('Cache-Control', 'no-store').json(decorateQuota(quotaState));
   } catch (err) {
     res.set('Cache-Control', 'no-store').json(decorateQuota({
@@ -134,6 +140,30 @@ app.get('/api/quota', async (req, res) => {
       providers: {},
       error: (err as Error).message,
     }));
+  }
+});
+
+app.get('/api/menubar', async (req, res) => {
+  let options: ReturnType<typeof parseMenuBarArgs>;
+  try {
+    const args = ['--url', `${req.protocol}://${req.get('host')}`];
+    for (const key of ['lang', 'accounts'] as const) {
+      const value = req.query[key];
+      if (value === undefined) continue;
+      if (typeof value !== 'string') throw new Error(`Invalid ${key} parameter`);
+      args.push(`--${key}=${value}`);
+    }
+    options = parseMenuBarArgs(args);
+  } catch (error) {
+    res.status(400).json({ error: (error as Error).message });
+    return;
+  }
+  res.set('Cache-Control', 'no-store').type('json');
+  try {
+    const state = await readCachedQuota();
+    res.send(renderMenuBar(state, { accounts: accountsForDisplay(), hideAgyClaude: loadSettings().hideAgyClaude }, options));
+  } catch {
+    res.send(renderMenuBarOffline(options));
   }
 });
 
@@ -259,13 +289,17 @@ app.get('/api/usage/records', async (req, res) => {
   }
 });
 
+function accountsForDisplay() {
+  return loadAccounts().map((account) => ({
+    ...account,
+    ownLogin: account.type !== 'agy' && hasCredential(account.type, account.userId),
+  }));
+}
+
 function publicSettings() {
   return {
     ...settingsView(usageStore.getScanReport()),
-    accounts: loadAccounts().map((account) => ({
-      ...account,
-      ownLogin: account.type !== 'agy' && hasCredential(account.type, account.userId),
-    })),
+    accounts: accountsForDisplay(),
     dataDir: resolveDataDir(),
   };
 }

@@ -6,7 +6,7 @@
 
 ```text
 PR / main → CI：Linux、macOS、Windows × Node 20、22、24
-v* 标签   → 同一套 CI → 检查版本/仓库 → 构建 tgz → 隔离安装运行 → 保存 artifact
+v* 标签   → 同一套 CI → 检查版本/仓库 → 在 macOS 构建 tgz → 隔离安装运行 → 保存 artifact
           → npm environment → 校验 artifact SHA-512 → OIDC 发布 → 比对 registry integrity
 ```
 
@@ -43,7 +43,7 @@ pnpm release:check                 # 只检查元数据，不发布
 - tarball 不含真实凭据、会话记录、`.npmrc`、本机配置或临时文件。
 - 首次发布前确认 npm 名称和账号权限；`npm view usage-console` 返回 E404 不等于名称已为你保留。
 
-脚本 `pnpm release:pack <目录>` 会调用 npm 的 `prepack`，清理并构建，然后检查文件白名单，输出固定名 `package.tgz` 和 SHA-512。它不登录、不发布。`scripts/smoke-package.mjs` 会在临时目录仅安装生产依赖，以隔离 HOME 启动服务，检查 CLI / health / HTML / JS / CSS，最后关闭进程并清理。
+脚本 `pnpm release:pack <目录>` 会清理并构建项目，检查文件白名单，输出 `package.tgz` 和 SHA-512。发布工作流在 macOS runner 上打包，包含 Apple Silicon 和 Intel 通用的 Swift 助手。`scripts/smoke-package.mjs` 在临时目录安装生产依赖，检查已安装的 CLI、网页资源、菜单数据和 macOS 助手的可执行性。
 
 ## 3. 首次发布：手动建立 npm 包
 

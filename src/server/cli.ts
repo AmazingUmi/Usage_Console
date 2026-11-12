@@ -20,7 +20,7 @@ Local quota and usage console. Opens a browser after start.
 
 Usage:
   usage-console [--port 3001] [--host 127.0.0.1] [--no-open]
-  usage-console menubar [--url http://127.0.0.1:3001] [--lang zh|en]
+  usage-console menubar [--url http://127.0.0.1:3001] [--lang zh|en]  (macOS)
 
 Options:
   --port <1-65535>   Listen port (default 3001, or CONSOLE_PORT). PORT is ignored.

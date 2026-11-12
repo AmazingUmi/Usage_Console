@@ -6,7 +6,7 @@ import os from 'node:os';
 import { spawn, execFileSync } from 'node:child_process';
 import { createHash } from 'node:crypto';
 import { fileURLToPath } from 'node:url';
-import { isLoopbackHost } from './listen.js';
+import { browserUrl, isLoopbackHost, resolveListenHost, resolveListenPort } from './listen.js';
 import { quotaRingImage } from './menubar-rings.js';
 import type { ProviderQuota, QuotaState, QuotaWindow } from './quota/types.js';
 
@@ -57,7 +57,7 @@ const TEXT = {
     agy_unavailable: 'AGY 不可用', stale: '上次成功读数', ago: '前', noAccounts: '尚未添加账户',
     offline: '服务离线或读取失败', open: '打开完整看板', refresh: '刷新显示',
     settingsFailed: '账户设置读取失败，暂用接口名称', missingAccount: '所选账户不存在',
-    start: '请先启动 usage-console --no-open', noWindows: '暂无额度窗口',
+    start: '请检查本地服务或重新运行 usage-console menubar', noWindows: '暂无额度窗口',
     noneSelected: '未选择显示账户，请点击圆环选择',
   },
   en: {
@@ -67,7 +67,7 @@ const TEXT = {
     agy_unavailable: 'AGY unavailable', stale: 'Last good reading', ago: 'ago', noAccounts: 'No accounts',
     offline: 'Offline or read failed', open: 'Open dashboard', refresh: 'Refresh display',
     settingsFailed: 'Account settings unavailable; using API names', missingAccount: 'Selected account not found',
-    start: 'Start usage-console --no-open first', noWindows: 'No quota windows',
+    start: 'Check the local service or rerun usage-console menubar', noWindows: 'No quota windows',
     noneSelected: 'No visible accounts selected; click the ring to choose',
   },
 };
@@ -87,8 +87,10 @@ function localUrl(raw: string): string {
   return url.origin;
 }
 
-export function parseMenuBarArgs(argv: string[]): Options & { data?: boolean } {
-  const options: Options & { data?: boolean } = { url: 'http://127.0.0.1:3001', lang: 'zh' };
+type MenuBarOptions = Options & { data?: boolean; attach?: boolean };
+
+export function parseMenuBarArgs(argv: string[]): MenuBarOptions {
+  const options: MenuBarOptions = { url: 'http://127.0.0.1:3001', lang: 'zh' };
   for (let index = 0; index < argv.length; index += 1) {
     if (argv[index] === '--data') { options.data = true; continue; }
     const [flag] = argv[index].split('=');
@@ -96,7 +98,10 @@ export function parseMenuBarArgs(argv: string[]): Options & { data?: boolean } {
     const equals = argv[index].indexOf('=');
     const value = equals >= 0 ? argv[index].slice(equals + 1) : argv[++index];
     if (!value || value.startsWith('--')) throw new Error(`Missing value for ${flag}`);
-    if (flag === '--url') options.url = localUrl(value);
+    if (flag === '--url') {
+      options.url = localUrl(value);
+      options.attach = true;
+    }
     if (flag === '--lang') {
       if (value !== 'zh' && value !== 'en') throw new Error('--lang must be zh or en');
       options.lang = value;
@@ -230,7 +235,7 @@ export function renderMenuBar(state: QuotaState & { error?: string }, settings: 
 }
 
 /** Use core HTTP directly: localhost reads must bypass any environment proxy. No redirects. */
-function readJson(url: URL, timeoutMs: number): Promise<unknown> {
+export function readJson(url: URL, timeoutMs: number): Promise<unknown> {
   return new Promise((resolve, reject) => {
     const transport = url.protocol === 'https:' ? https : http;
     const agent = new transport.Agent();
@@ -284,11 +289,14 @@ export async function readMenuBar(options: Options, timeoutMs = 8000): Promise<s
   }
 }
 
-function launchMenuBar(options: Options): void {
-  if (process.platform !== 'darwin') throw new Error('The menu bar requires macOS; use --data to inspect menu data.');
+function menuBarExecutable(cache: string): string {
+  const bundled = fileURLToPath(new URL('../native/UsageConsoleMenuBar', import.meta.url));
+  // Darwin 22 is macOS 13, the deployment target of the Intel slice.
+  const supportsBundledHelper = process.arch === 'arm64'
+    || (process.arch === 'x64' && Number.parseInt(os.release(), 10) >= 22);
+  if (supportsBundledHelper && fs.existsSync(bundled)) return bundled;
+
   const source = fileURLToPath(new URL('../../bin/UsageConsoleMenuBar.swift', import.meta.url));
-  const cache = path.join(os.homedir(), '.usage-console', 'menubar');
-  fs.mkdirSync(cache, { recursive: true, mode: 0o700 });
   const hash = createHash('sha256').update(fs.readFileSync(source)).digest('hex').slice(0, 16);
   const executable = path.join(cache, `UsageConsoleMenuBar-${hash}`);
   if (!fs.existsSync(executable)) {
@@ -301,25 +309,68 @@ function launchMenuBar(options: Options): void {
       throw new Error(`Could not build the menu bar helper. Install Apple's Command Line Tools (xcode-select --install).\n${String((error as { stderr?: Buffer }).stderr ?? error)}`);
     }
   }
-  const args = [process.execPath, fileURLToPath(new URL('../../bin/usage-console.js', import.meta.url)), 'menubar', '--data', '--url', localUrl(options.url), '--lang', options.lang];
+  return executable;
+}
+
+async function launchMenuBar(options: MenuBarOptions): Promise<void> {
+  if (process.platform !== 'darwin') {
+    throw new Error('The native menu bar requires macOS. Run usage-console to open the web dashboard.');
+  }
+  const url = options.attach ? options.url : localUrl(browserUrl(resolveListenHost(), resolveListenPort()));
+  const cache = path.join(os.homedir(), '.usage-console', 'menubar');
+  fs.mkdirSync(cache, { recursive: true, mode: 0o700 });
+  const executable = menuBarExecutable(cache);
+  const worker = options.attach ? '' : fileURLToPath(new URL('./menubar-service.js', import.meta.url));
+  const args = [cache, worker, process.execPath, fileURLToPath(new URL('../../bin/usage-console.js', import.meta.url)), 'menubar', '--data', '--url', url, '--lang', options.lang];
   if (options.account) args.push('--account', options.account);
   if (options.accounts) args.push('--accounts', options.accounts === 'all' ? 'all' : JSON.stringify(options.accounts));
-  const child = spawn(executable, args, { detached: true, stdio: 'ignore' });
-  child.on('error', error => { console.error(error.message); process.exitCode = 1; });
-  child.unref();
+  const child = spawn(executable, args, { detached: true, stdio: ['ignore', 'pipe', 'ignore'] });
+  try {
+    await new Promise<void>((resolve, reject) => {
+      let output = '';
+      const timer = setTimeout(() => reject(new Error('Timed out starting the macOS menu bar.')), 15_000);
+      const stop = () => {
+        clearTimeout(timer);
+        process.removeListener('SIGINT', interrupted);
+        process.removeListener('SIGTERM', interrupted);
+      };
+      const interrupted = () => reject(new Error('Menu bar startup interrupted.'));
+      process.once('SIGINT', interrupted);
+      process.once('SIGTERM', interrupted);
+      child.once('error', reject);
+      child.once('close', (code, signal) => reject(new Error(`Menu bar exited during startup (${signal ?? code}).`)));
+      child.stdout.setEncoding('utf8').on('data', (chunk: string) => {
+        output += chunk;
+        const newline = output.indexOf('\n');
+        if (newline < 0 && output.length < 4096) return;
+        const line = output.slice(0, newline < 0 ? 4096 : newline);
+        if (line === 'ready' || line === 'already running') resolve();
+        else reject(new Error(line || 'Menu bar startup failed.'));
+      });
+      child.stdout.once('close', stop);
+    });
+  } catch (error) {
+    child.kill();
+    throw error;
+  } finally {
+    child.stdout.destroy();
+    child.unref();
+  }
 }
 
 export async function menuBarMain(argv: string[]): Promise<void> {
   if (argv.includes('--help') || argv.includes('-h')) {
     console.log(`Usage: usage-console menubar [--url http://127.0.0.1:3001] [--lang zh|en] [--account <account-id>] [--accounts all]
 
-Launches the independent macOS ring menu (Command Line Tools required once).
+Starts the macOS menu bar and its local service (or uses a running service).
+The npm release includes a precompiled helper for Apple Silicon and Intel on macOS 13+.
+A source checkout or an older Intel Mac needs macOS Command Line Tools.
+--url attaches to an existing loopback service. CONSOLE_PORT selects the automatic startup port.
 --data prints structured menu JSON instead of starting the native helper.
---account / --accounts select initial rings; saved menu selections take precedence.
-Start the local service separately: usage-console --no-open`);
+--account / --accounts select initial rings. Saved menu selections take precedence.`);
     return;
   }
   const options = parseMenuBarArgs(argv);
   if (options.data) process.stdout.write(await readMenuBar(options));
-  else launchMenuBar(options);
+  else await launchMenuBar(options);
 }

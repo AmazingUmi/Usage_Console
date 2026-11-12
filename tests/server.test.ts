@@ -5,6 +5,7 @@ import http from 'node:http';
 import net from 'node:net';
 import os from 'node:os';
 import path from 'node:path';
+import { createInterface } from 'node:readline';
 import test, { type TestContext } from 'node:test';
 import { fileURLToPath } from 'node:url';
 import { promisify } from 'node:util';
@@ -13,6 +14,7 @@ import { createServer as createViteServer } from 'vite';
 const execFileAsync = promisify(execFile);
 const root = fileURLToPath(new URL('../', import.meta.url));
 const cli = path.join(root, 'src/server/cli.ts');
+const menuService = path.join(root, 'src/server/menubar-service.ts');
 
 function isolatedEnv(home: string, overrides: NodeJS.ProcessEnv = {}): NodeJS.ProcessEnv {
   const env = { ...process.env };
@@ -85,6 +87,88 @@ async function request(base: string, headers: http.OutgoingHttpHeaders = {}, met
     req.end();
   });
 }
+
+test('menu bar starts a local service, reads menu data, and shuts it down when the owner closes', { timeout: 15_000 }, async (t) => {
+  const home = fs.mkdtempSync(path.join(os.tmpdir(), 'usage-menu-owner-test-'));
+  const reservation = net.createServer();
+  const port = await listen(reservation);
+  await new Promise<void>((resolve) => reservation.close(() => resolve()));
+  const url = `http://127.0.0.1:${port}`;
+  const child = spawn(process.execPath, ['--import', 'tsx', menuService, url], {
+    cwd: root, env: isolatedEnv(home), stdio: ['pipe', 'pipe', 'ignore'],
+  });
+  const closed = new Promise<number | null>((resolve, reject) => {
+    child.once('close', resolve);
+    child.once('error', reject);
+  });
+  t.after(async () => {
+    child.kill();
+    await closed;
+    fs.rmSync(home, { recursive: true, force: true });
+  });
+  const lines = createInterface({ input: child.stdout });
+  const ready = await lines[Symbol.asyncIterator]().next();
+  lines.close();
+  assert.equal(ready.value, 'owned');
+  const health = await request(url, {}, 'GET', '/api/health');
+  assert.equal(JSON.parse(health.body).app, 'usage-console');
+  const menu = await request(url, {}, 'GET', '/api/menubar?lang=en&accounts=all');
+  assert.equal(menu.status, 200);
+  const payload = JSON.parse(menu.body);
+  assert.ok(payload.rows.some((row: { title: string }) => row.title === 'No accounts'));
+  assert.ok(Buffer.from(payload.image, 'base64').toString().startsWith('%PDF-1.4'));
+  assert.equal((await request(url, {}, 'GET', '/api/menubar?lang=en&accounts=invalid')).status, 400);
+  assert.equal((await request(url, { 'Sec-Fetch-Site': 'cross-site' }, 'GET', '/api/menubar')).status, 403);
+  child.stdin.end();
+  assert.equal(await closed, 0);
+  await assert.rejects(request(url, {}, 'GET', '/api/health'), { code: 'ECONNREFUSED' });
+});
+
+test('menu bar reuses a running web console and leaves it running', { timeout: 15_000 }, async (t) => {
+  const url = await startCli(t);
+  const home = fs.mkdtempSync(path.join(os.tmpdir(), 'usage-menu-reuse-test-'));
+  t.after(() => fs.rmSync(home, { recursive: true, force: true }));
+  const result = await execFileAsync(process.execPath, ['--import', 'tsx', menuService, url], {
+    cwd: root, env: isolatedEnv(home), timeout: 5000,
+  });
+  assert.equal(result.stdout.trim(), 'reused');
+  assert.equal((await request(url, {}, 'GET', '/api/health')).status, 200);
+  assert.equal(fs.existsSync(path.join(home, '.usage-console')), false);
+});
+
+test('menu bar leaves an unrelated listener alone', async (t) => {
+  const home = fs.mkdtempSync(path.join(os.tmpdir(), 'usage-menu-conflict-test-'));
+  const occupied = http.createServer((_req, res) => res.end('different service'));
+  const port = await listen(occupied);
+  t.after(async () => {
+    await new Promise<void>((resolve) => occupied.close(() => resolve()));
+    fs.rmSync(home, { recursive: true, force: true });
+  });
+  const url = `http://127.0.0.1:${port}`;
+  await assert.rejects(
+    execFileAsync(process.execPath, ['--import', 'tsx', menuService, url], {
+      cwd: root, env: isolatedEnv(home), timeout: 5000,
+    }),
+    (error: Error & { code?: number; stdout?: string }) => {
+      assert.equal(error.code, 1);
+      assert.match(error.stdout || '', /Could not start the local service/);
+      return true;
+    },
+  );
+  assert.equal((await request(url, {}, 'GET', '/api/health')).body, 'different service');
+  assert.equal(fs.existsSync(path.join(home, '.usage-console')), false);
+});
+
+test('the native menu bar on other platforms points users to the web dashboard', { skip: process.platform === 'darwin' }, async () => {
+  await assert.rejects(
+    execFileAsync(process.execPath, ['--import', 'tsx', cli, 'menubar'], { cwd: root, timeout: 5000 }),
+    (error: Error & { code?: number; stderr?: string }) => {
+      assert.equal(error.code, 1);
+      assert.match(error.stderr || '', /requires macOS.*web dashboard/);
+      return true;
+    },
+  );
+});
 
 test('failed CLI startup exits with code 1 without starting scans or quota polling', async (t) => {
   const home = fs.mkdtempSync(path.join(os.tmpdir(), 'usage-startup-test-'));

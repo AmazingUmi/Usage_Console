@@ -96,16 +96,22 @@ async function main() {
     if (!argument) throw new Error('Usage: pnpm release:pack <output-directory>');
     const directory = path.resolve(argument);
     fs.mkdirSync(directory, { recursive: true });
-    // Constant shell command works with npm.cmd too; the destination is passed through the environment.
-    const result = execSync('npm pack --json --foreground-scripts=false', {
+    // Constant shell commands also work with Windows' npm.cmd and pnpm.cmd.
+    execSync('pnpm build', { cwd: root, stdio: 'inherit' });
+    const nativeHelper = 'dist/native/UsageConsoleMenuBar';
+    if (process.platform === 'darwin') {
+      execFileSync(process.execPath, ['scripts/build-menubar.mjs', nativeHelper], { cwd: root, stdio: 'inherit' });
+    }
+    const result = execSync('npm pack --json --ignore-scripts', {
       cwd: root,
       encoding: 'utf8',
-      env: { ...process.env, npm_config_pack_destination: directory, npm_config_ignore_scripts: 'false' },
+      env: { ...process.env, npm_config_pack_destination: directory },
     });
     const [pack] = JSON.parse(result);
     if (pack.name !== info.name || pack.version !== info.version) throw new Error('Packed manifest does not match the release');
     const files = pack.files.map((file) => file.path);
-    for (const required of ['bin/usage-console.js', 'bin/UsageConsoleMenuBar.swift', 'dist/server/cli.js', 'dist/server/index.js', 'dist/server/menubar.js', 'dist/server/menubar-rings.js', 'dist/client/index.html', 'LICENSE']) {
+    if (process.platform === 'darwin' && !files.includes(nativeHelper)) throw new Error(`Missing release file: ${nativeHelper}`);
+    for (const required of ['bin/usage-console.js', 'bin/UsageConsoleMenuBar.swift', 'dist/server/cli.js', 'dist/server/index.js', 'dist/server/menubar.js', 'dist/server/menubar-rings.js', 'dist/server/menubar-service.js', 'dist/client/index.html', 'LICENSE']) {
       if (!files.includes(required)) throw new Error(`Missing release file: ${required}`);
     }
     if (files.some((file) => !/^(?:bin\/|dist\/|package\.json$|README\.md$|LICENSE$)/.test(file))) {
